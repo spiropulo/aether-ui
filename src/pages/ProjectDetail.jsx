@@ -238,6 +238,12 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
     status: initial?.status ?? '',
     startDate: initial?.startDate ?? '',
     endDate: initial?.endDate ?? '',
+    addressLine1: initial?.addressLine1 ?? '',
+    addressLine2: initial?.addressLine2 ?? '',
+    city: initial?.city ?? '',
+    state: initial?.state ?? '',
+    postalCode: initial?.postalCode ?? '',
+    country: initial?.country ?? '',
   })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const handleSubmit = (e) => {
@@ -248,6 +254,12 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
       status: form.status.trim() || null,
       startDate: form.startDate || null,
       endDate: form.endDate || null,
+      addressLine1: form.addressLine1.trim() || null,
+      addressLine2: form.addressLine2.trim() || null,
+      city: form.city.trim() || null,
+      state: form.state.trim() || null,
+      postalCode: form.postalCode.trim() || null,
+      country: form.country.trim() || null,
     })
   }
   return (
@@ -288,6 +300,39 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">End date</label>
           <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={inputClass} />
+        </div>
+      </div>
+      <div className="border-t border-gray-200 pt-4 mt-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">Address (for location-based pricing)</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Street address</label>
+            <input name="addressLine1" value={form.addressLine1} onChange={handleChange} placeholder="123 Main St" className={inputClass} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Apt, suite, etc. (optional)</label>
+            <input name="addressLine2" value={form.addressLine2} onChange={handleChange} placeholder="Suite 100" className={inputClass} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">City</label>
+              <input name="city" value={form.city} onChange={handleChange} placeholder="San Francisco" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">State / Province</label>
+              <input name="state" value={form.state} onChange={handleChange} placeholder="CA" className={inputClass} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Postal code</label>
+              <input name="postalCode" value={form.postalCode} onChange={handleChange} placeholder="94102" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Country</label>
+              <input name="country" value={form.country} onChange={handleChange} placeholder="USA" className={inputClass} />
+            </div>
+          </div>
         </div>
       </div>
       <div className="flex justify-end pt-2">
@@ -574,6 +619,9 @@ export default function ProjectDetail() {
   const project = projectData?.project
   const displayStatus = statusPollData?.project?.status ?? project?.status
   const sourcePdfUploadId = statusPollData?.project?.sourcePdfUploadId ?? project?.sourcePdfUploadId
+  const hasAddress = (project?.addressLine1?.trim?.()?.length > 0) ||
+    (project?.city?.trim?.()?.length > 0 && project?.country?.trim?.()?.length > 0)
+  const pricingInProgress = displayStatus === 'PRICING' || pricingLoading
 
   const handleRequestPricing = async () => {
     if (!tenantId || !projectId) return
@@ -590,7 +638,11 @@ export default function ProjectDetail() {
       refetchOffers()
     } catch (err) {
       const msg = err.message || ''
-      if (msg.toLowerCase().includes('training data')) {
+      if (msg.toLowerCase().includes('address')) {
+        setMutationError(
+          'Set the project address before requesting pricing. Edit the project and add at least street address or city + country.'
+        )
+      } else if (msg.toLowerCase().includes('training data')) {
         setMutationError(
           'Configure tenant or project training data first. Add custom data or AI Catalog selections in AI Training, or add project-specific training in the AI Training Data tab below.'
         )
@@ -703,6 +755,13 @@ export default function ProjectDetail() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto">
+      {pricingInProgress && (
+        <div className="mb-6 flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+          <Spinner size="sm" />
+          <span className="font-medium">AI is pricing this project</span>
+          <span className="text-amber-700 text-sm">Task by task, offer by offer. The project is locked until pricing completes. This may take a few minutes.</span>
+        </div>
+      )}
       {mutationError && (
         <div className="mb-6">
           <Alert message={mutationError} />
@@ -736,6 +795,17 @@ export default function ProjectDetail() {
               <div className="flex items-center gap-4 mt-3 text-xs text-gray-400">
                 {project.startDate && <span>Start: {formatDate(project.startDate)}</span>}
                 {project.endDate && <span>Due: {formatDate(project.endDate)}</span>}
+              </div>
+            )}
+            {[project.addressLine1, project.city, project.state, project.postalCode, project.country].some(Boolean) && (
+              <div className="mt-3 flex items-start gap-2 text-sm text-gray-600">
+                <svg className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span>
+                  {[project.addressLine1, project.addressLine2, [project.city, project.state, project.postalCode].filter(Boolean).join(', '), project.country].filter(Boolean).join(', ')}
+                </span>
               </div>
             )}
             <div className="mt-4 flex flex-wrap gap-3 items-center">
@@ -841,20 +911,30 @@ export default function ProjectDetail() {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
             <div className="flex flex-col items-end gap-1">
-              {!hasTrainingData && (
+              {(!hasTrainingData || !hasAddress) && !pricingInProgress && (
                 <p className="text-xs text-amber-700">
-                  Add <Link to="/app/training" className="hover:underline font-medium">tenant training</Link>
-                  {' or '}
-                  <button type="button" onClick={() => setActiveTab('training')} className="hover:underline font-medium">
-                    project training
-                  </button>
-                  {' to enable pricing'}
+                  {!hasTrainingData && (
+                    <>Add <Link to="/app/training" className="hover:underline font-medium">tenant training</Link>
+                    {' or '}
+                    <button type="button" onClick={() => setActiveTab('training')} className="hover:underline font-medium">
+                      project training
+                    </button>
+                    {' to enable pricing'}
+                    {!hasAddress && ' • '}
+                    </>)}
+                  {!hasAddress && (
+                    <>Set project <button type="button" onClick={() => { setMutationError(null); setProjectModal(true) }} className="hover:underline font-medium">address</button> before pricing</>
+                  )}
                 </p>
               )}
               <button
                 onClick={handleRequestPricing}
-                disabled={pricingLoading || !hasTrainingData}
-                title={!hasTrainingData ? 'Configure tenant or project training data before requesting pricing.' : undefined}
+                disabled={pricingInProgress || !hasTrainingData || !hasAddress}
+                title={
+                  pricingInProgress ? 'Pricing in progress…' :
+                  !hasTrainingData ? 'Configure tenant or project training data before requesting pricing.' :
+                  !hasAddress ? 'Set the project address before requesting pricing.' : undefined
+                }
                 className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-2 rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
               >
                 {pricingLoading ? (
@@ -876,7 +956,9 @@ export default function ProjectDetail() {
             </div>
             <button
               onClick={() => { setMutationError(null); setProjectModal(true) }}
-              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors"
+              disabled={pricingInProgress}
+              title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-200"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
@@ -885,7 +967,9 @@ export default function ProjectDetail() {
             </button>
             <button
               onClick={() => setDeleteTarget({ type: 'project', item: project })}
-              className="flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-red-600 border border-gray-200 hover:border-red-300 px-3 py-2 rounded-xl transition-colors"
+              disabled={pricingInProgress}
+              title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-red-600 border border-gray-200 hover:border-red-300 px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 disabled:hover:border-gray-200"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916" />
@@ -956,7 +1040,9 @@ export default function ProjectDetail() {
             </div>
             <button
               onClick={() => { setMutationError(null); setTaskModal({ mode: 'create' }) }}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors flex-shrink-0"
+              disabled={pricingInProgress}
+              title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -972,7 +1058,7 @@ export default function ProjectDetail() {
               title={taskSearch ? 'No matching tasks' : 'No tasks yet'}
               description={taskSearch ? 'Try a different search term.' : 'Add tasks to break this project down into trackable pieces of work.'}
               action={
-                !taskSearch && (
+                !taskSearch && !pricingInProgress && (
                   <button
                     onClick={() => { setMutationError(null); setTaskModal({ mode: 'create' }) }}
                     className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
@@ -1085,7 +1171,9 @@ export default function ProjectDetail() {
                           )}
                           <button
                             onClick={() => { setMutationError(null); setTaskModal({ mode: 'edit', task }) }}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                            disabled={pricingInProgress}
+                            title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
@@ -1093,7 +1181,9 @@ export default function ProjectDetail() {
                           </button>
                           <button
                             onClick={() => setDeleteTarget({ type: 'task', item: task })}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            disabled={pricingInProgress}
+                            title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916" />
@@ -1208,7 +1298,9 @@ export default function ProjectDetail() {
             </h2>
             <button
               onClick={() => { setMutationError(null); setTrainingModal({ mode: 'create' }) }}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
+              disabled={pricingInProgress}
+              title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -1224,12 +1316,14 @@ export default function ProjectDetail() {
               title="No training data"
               description="Add project-specific training data to improve AI estimates for this project."
               action={
-                <button
-                  onClick={() => { setMutationError(null); setTrainingModal({ mode: 'create' }) }}
-                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
-                >
-                  + Add training data
-                </button>
+                !pricingInProgress && (
+                  <button
+                    onClick={() => { setMutationError(null); setTrainingModal({ mode: 'create' }) }}
+                    className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
+                  >
+                    + Add training data
+                  </button>
+                )
               }
               icon={
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -1255,7 +1349,9 @@ export default function ProjectDetail() {
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                           onClick={() => { setMutationError(null); setTrainingModal({ mode: 'edit', entry }) }}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                          disabled={pricingInProgress}
+                          title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
@@ -1263,7 +1359,9 @@ export default function ProjectDetail() {
                         </button>
                         <button
                           onClick={() => setDeleteTarget({ type: 'training', item: entry })}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          disabled={pricingInProgress}
+                          title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916" />

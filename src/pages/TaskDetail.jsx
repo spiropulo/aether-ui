@@ -430,16 +430,18 @@ function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
 }
 
 // ─── Section table ────────────────────────────────────────────────────────────
-function SectionTable({ headers, rows, onEdit, onDelete, emptyTitle, emptyDesc, onAdd }) {
+function SectionTable({ headers, rows, onEdit, onDelete, emptyTitle, emptyDesc, onAdd, disabled }) {
   if (rows.length === 0) {
     return (
       <EmptyState
         title={emptyTitle}
         description={emptyDesc}
         action={
-          <button onClick={onAdd} className="text-sm font-semibold text-indigo-600 hover:text-indigo-500">
-            + Add
-          </button>
+          !disabled && onAdd ? (
+            <button onClick={onAdd} className="text-sm font-semibold text-indigo-600 hover:text-indigo-500">
+              + Add
+            </button>
+          ) : null
         }
       />
     )
@@ -466,12 +468,12 @@ function SectionTable({ headers, rows, onEdit, onDelete, emptyTitle, emptyDesc, 
             ))}
             <td className="px-4 py-3.5 last:pr-6">
               <div className="flex items-center justify-end gap-1">
-                <button onClick={() => onEdit(row.original)} className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors">
+                <button onClick={() => !disabled && onEdit(row.original)} disabled={disabled} className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                   </svg>
                 </button>
-                <button onClick={() => onDelete(row.original)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                <button onClick={() => !disabled && onDelete(row.original)} disabled={disabled} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916" />
                   </svg>
@@ -540,6 +542,7 @@ export default function TaskDetail() {
   const project = projectData?.project
   const task = taskData?.task
   const offers = offersData?.offers?.items ?? []
+  const pricingInProgress = project?.status === 'PRICING'
 
   const grandTotal = offers.reduce((s, o) => s + (o.total ?? 0), 0)
 
@@ -549,6 +552,13 @@ export default function TaskDetail() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto">
+      {pricingInProgress && (
+        <div className="mb-6 flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+          <Spinner size="sm" />
+          <span className="font-medium">AI is pricing this project</span>
+          <span className="text-amber-700 text-sm">The project is locked. Return to Project Detail to see progress.</span>
+        </div>
+      )}
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-gray-500 mb-6 flex-wrap">
         <Link to="/app/projects" className="hover:text-indigo-600 transition-colors">Projects</Link>
@@ -655,7 +665,9 @@ export default function TaskDetail() {
             </button>
             <button
               onClick={() => { setMutationError(null); setTaskModal(true) }}
-              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors flex-shrink-0"
+              disabled={pricingInProgress}
+              title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-gray-200"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
@@ -675,7 +687,7 @@ export default function TaskDetail() {
         <div className="lg:col-span-2">
           <TaskCalendar
             task={task}
-            onUpdate={(updates) =>
+            onUpdate={pricingInProgress ? undefined : (updates) =>
               updateTask({
                 variables: {
                   id: taskId,
@@ -706,7 +718,9 @@ export default function TaskDetail() {
             </h2>
             <button
               onClick={() => { setMutationError(null); setOfferModal({ mode: 'create' }) }}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
+              disabled={pricingInProgress}
+              title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -727,9 +741,10 @@ export default function TaskDetail() {
                     <span className="font-medium text-gray-900">{offer.name}</span>,
                     <button
                       type="button"
-                      onClick={() => { setMutationError(null); setDescriptionEditTarget(offer) }}
-                      className="text-left w-full text-gray-500 text-sm max-w-56 truncate block hover:text-indigo-600 hover:bg-indigo-50/70 -m-2 p-2 rounded-lg transition-colors"
-                      title={offer.description ? `${offer.description} — Click to view and edit` : 'Click to add description'}
+                      onClick={() => { if (!pricingInProgress) { setMutationError(null); setDescriptionEditTarget(offer) } }}
+                      disabled={pricingInProgress}
+                      className="text-left w-full text-gray-500 text-sm max-w-56 truncate block hover:text-indigo-600 hover:bg-indigo-50/70 -m-2 p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      title={pricingInProgress ? 'Project is locked during pricing' : (offer.description ? `${offer.description} — Click to view and edit` : 'Click to add description')}
                     >
                       {offer.description || '—'}
                     </button>,
@@ -752,6 +767,7 @@ export default function TaskDetail() {
                 emptyTitle="No offers yet"
                 emptyDesc="Add materials, labor, or services for this task."
                 onAdd={() => { setMutationError(null); setOfferModal({ mode: 'create' }) }}
+                disabled={pricingInProgress}
               />
             </div>
           )}

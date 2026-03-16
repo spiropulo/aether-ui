@@ -28,6 +28,12 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
     status: initial?.status ?? '',
     startDate: initial?.startDate ?? '',
     endDate: initial?.endDate ?? '',
+    addressLine1: initial?.addressLine1 ?? '',
+    addressLine2: initial?.addressLine2 ?? '',
+    city: initial?.city ?? '',
+    state: initial?.state ?? '',
+    postalCode: initial?.postalCode ?? '',
+    country: initial?.country ?? '',
   })
 
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
@@ -40,6 +46,12 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
       status: form.status.trim() || null,
       startDate: form.startDate || null,
       endDate: form.endDate || null,
+      addressLine1: form.addressLine1.trim() || null,
+      addressLine2: form.addressLine2.trim() || null,
+      city: form.city.trim() || null,
+      state: form.state.trim() || null,
+      postalCode: form.postalCode.trim() || null,
+      country: form.country.trim() || null,
     })
   }
 
@@ -88,6 +100,39 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">End date</label>
           <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={inputClass} />
+        </div>
+      </div>
+      <div className="border-t border-gray-200 pt-4 mt-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">Address (for location-based pricing)</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Street address</label>
+            <input name="addressLine1" value={form.addressLine1} onChange={handleChange} placeholder="123 Main St" className={inputClass} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">Apt, suite, etc. (optional)</label>
+            <input name="addressLine2" value={form.addressLine2} onChange={handleChange} placeholder="Suite 100" className={inputClass} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">City</label>
+              <input name="city" value={form.city} onChange={handleChange} placeholder="San Francisco" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">State / Province</label>
+              <input name="state" value={form.state} onChange={handleChange} placeholder="CA" className={inputClass} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Postal code</label>
+              <input name="postalCode" value={form.postalCode} onChange={handleChange} placeholder="94102" className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Country</label>
+              <input name="country" value={form.country} onChange={handleChange} placeholder="USA" className={inputClass} />
+            </div>
+          </div>
         </div>
       </div>
       <div className="flex justify-end pt-2">

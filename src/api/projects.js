@@ -18,6 +18,12 @@ export const GET_PROJECTS = gql`
         status
         startDate
         endDate
+        addressLine1
+        addressLine2
+        city
+        state
+        postalCode
+        country
         createdAt
         updatedAt
       }
@@ -40,6 +46,12 @@ export const GET_PROJECT = gql`
       endDate
       tenantId
       sourcePdfUploadId
+      addressLine1
+      addressLine2
+      city
+      state
+      postalCode
+      country
       createdAt
       updatedAt
     }
@@ -66,6 +78,12 @@ export const CREATE_PROJECT = gql`
       startDate
       endDate
       tenantId
+      addressLine1
+      addressLine2
+      city
+      state
+      postalCode
+      country
       createdAt
     }
   }
@@ -80,6 +98,12 @@ export const UPDATE_PROJECT = gql`
       status
       startDate
       endDate
+      addressLine1
+      addressLine2
+      city
+      state
+      postalCode
+      country
       updatedAt
     }
   }
