@@ -146,6 +146,23 @@ export async function requestProjectPricing(projectId, tenantId, { token } = {})
 }
 
 /**
+ * Export project as PDF. Returns a Blob.
+ * GET /api/v1/estimate/projects/:projectId/export
+ */
+export async function exportProjectPdf(projectId, tenantId, { token } = {}) {
+  const url = `${BASE}/v1/estimate/projects/${encodeURIComponent(projectId)}/export?tenant_id=${encodeURIComponent(tenantId)}`
+  const headers = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(url, { headers })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail ?? data.message ?? `Export failed (${res.status})`)
+  }
+  return res.blob()
+}
+
+/**
  * Delete a PDF upload record by ID.
  * DELETE /api/v1/estimate/uploads/:id
  */

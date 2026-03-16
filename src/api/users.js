@@ -63,8 +63,8 @@ export const GET_USER_PROFILE = gql`
 `
 
 export const UPDATE_PROFILE = gql`
-  mutation UpdateProfile($id: ID!, $tenantId: String!, $input: UpdateProfileInput!) {
-    updateProfile(id: $id, tenantId: $tenantId, input: $input) {
+  mutation UpdateProfile($id: ID!, $tenantId: String!, $callerId: String!, $input: UpdateProfileInput!) {
+    updateProfile(id: $id, tenantId: $tenantId, callerId: $callerId, input: $input) {
       id
       username
       email

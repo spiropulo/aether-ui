@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation } from '@apollo/client/react'
 import { useAuth } from '../context/AuthContext'
 import { GET_USER_PROFILE, UPDATE_PROFILE } from '../api/users'
 import { CHANGE_PASSWORD } from '../api/auth'
 import { GET_TENANT, UPDATE_TENANT } from '../api/tenants'
+import { getSubscriptionStatus, subscribeToPlan, cancelSubscription } from '../api/subscription'
 import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
 import Alert from '../components/ui/Alert'
@@ -34,6 +35,9 @@ export default function Settings() {
   const [passwordError, setPasswordError] = useState(null)
   const [tenantSuccess, setTenantSuccess] = useState(null)
   const [tenantError, setTenantError] = useState(null)
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null)
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false)
+  const [subscriptionError, setSubscriptionError] = useState(null)
 
   const [profileForm, setProfileForm] = useState(null)
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirm: '' })
@@ -96,12 +100,51 @@ export default function Settings() {
   const profile = profileData?.userProfile
   const tenant = tenantData?.tenant
 
+  const fetchSubscription = () => {
+    if (!tenantId) return
+    setSubscriptionLoading(true)
+    const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+    getSubscriptionStatus(tenantId, { token })
+      .then(setSubscriptionStatus)
+      .catch((e) => setSubscriptionError(e.message))
+      .finally(() => setSubscriptionLoading(false))
+  }
+
+  useEffect(() => {
+    fetchSubscription()
+  }, [tenantId])
+
+  const handleSubscribe = async (plan) => {
+    if (!tenantId) return
+    setSubscriptionError(null)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+      await subscribeToPlan(tenantId, plan, { token })
+      fetchSubscription()
+    } catch (e) {
+      setSubscriptionError(e.message)
+    }
+  }
+
+  const handleCancel = async () => {
+    if (!tenantId) return
+    setSubscriptionError(null)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+      await cancelSubscription(tenantId, { token })
+      fetchSubscription()
+    } catch (e) {
+      setSubscriptionError(e.message)
+    }
+  }
+
   const handleProfileSubmit = (e) => {
     e.preventDefault()
     updateProfile({
       variables: {
         id: user.id,
         tenantId,
+        callerId: user.id,
         input: {
           firstName: profileForm.firstName.trim() || null,
           lastName: profileForm.lastName.trim() || null,
@@ -229,6 +272,70 @@ export default function Settings() {
             </button>
           </div>
         </form>
+      </Section>
+
+      {/* AI Pricing Subscription */}
+      <Section title="AI Pricing Subscription" description="Credit-based plans for AI-assisted pricing. Free: 3/month. Pro: 20/month ($50). Business: 50/month ($100). Unlimited: $200.">
+        <Alert message={subscriptionError} onDismiss={() => setSubscriptionError(null)} />
+        {subscriptionLoading && !subscriptionStatus ? (
+          <div className="flex justify-center py-6"><Spinner /></div>
+        ) : subscriptionStatus ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-100">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Current plan: {subscriptionStatus.plan}</p>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {subscriptionStatus.limit < 0
+                    ? `${subscriptionStatus.used} used this period (unlimited)`
+                    : `${subscriptionStatus.used} / ${subscriptionStatus.limit} AI pricings used this billing period`}
+                </p>
+                {subscriptionStatus.cycleEnd && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Cycle ends: {new Date(subscriptionStatus.cycleEnd).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {subscriptionStatus.plan !== 'PRO' && (
+                <button
+                  onClick={() => handleSubscribe('PRO')}
+                  disabled={subscriptionLoading}
+                  className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl disabled:opacity-60"
+                >
+                  Upgrade to Pro ($50/mo)
+                </button>
+              )}
+              {subscriptionStatus.plan !== 'BUSINESS' && (
+                <button
+                  onClick={() => handleSubscribe('BUSINESS')}
+                  disabled={subscriptionLoading}
+                  className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl disabled:opacity-60"
+                >
+                  Upgrade to Business ($100/mo)
+                </button>
+              )}
+              {subscriptionStatus.plan !== 'UNLIMITED' && (
+                <button
+                  onClick={() => handleSubscribe('UNLIMITED')}
+                  disabled={subscriptionLoading}
+                  className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl disabled:opacity-60"
+                >
+                  Upgrade to Unlimited ($200/mo)
+                </button>
+              )}
+              {subscriptionStatus.plan !== 'FREE' && (
+                <button
+                  onClick={handleCancel}
+                  disabled={subscriptionLoading}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-700 border border-gray-200 rounded-xl disabled:opacity-60"
+                >
+                  Cancel (keeps access until cycle end)
+                </button>
+              )}
+            </div>
+          </div>
+        ) : null}
       </Section>
 
       {/* Organization (admin only) */}

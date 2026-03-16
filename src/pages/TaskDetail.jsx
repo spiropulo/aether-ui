@@ -10,7 +10,11 @@ import {
   CREATE_OFFER,
   UPDATE_OFFER,
   DELETE_OFFER,
+  SEND_PROJECT_EMAIL,
 } from '../api/projects'
+import { GET_USER_PROFILES } from '../api/users'
+import AssigneeSelector from '../components/ui/AssigneeSelector'
+import EmailComposeModal from '../components/EmailComposeModal'
 import Modal from '../components/ui/Modal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
@@ -22,13 +26,205 @@ const inputClass =
 
 const UOM_OPTIONS = ['Each', 'kg', 'Hour', 'Day', 'Week', 'Month', 'Lot', 'LF', 'SF', 'CY']
 
+const CALENDAR_COLORS = [
+  { value: '#6366F1', label: 'Indigo' },
+  { value: '#3B82F6', label: 'Blue' },
+  { value: '#10B981', label: 'Emerald' },
+  { value: '#F59E0B', label: 'Amber' },
+  { value: '#EF4444', label: 'Red' },
+  { value: '#8B5CF6', label: 'Violet' },
+  { value: '#EC4899', label: 'Pink' },
+  { value: '#14B8A6', label: 'Teal' },
+]
+
 function formatCurrency(v) {
   if (v == null) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v)
 }
 
+function formatDate(d) {
+  if (!d) return null
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function getDaysInMonth(year, month) {
+  const first = new Date(year, month, 1)
+  const last = new Date(year, month + 1, 0)
+  return { startPad: first.getDay(), days: last.getDate() }
+}
+
+/** Parse YYYY-MM-DD (or YYYY-MM-DDTHH:mm:ss) as local date to avoid timezone shifts */
+function parseDateOnly(dateStr) {
+  if (!dateStr) return null
+  const s = String(dateStr).split('T')[0]
+  const parts = s.split('-').map(Number)
+  if (parts.length !== 3 || parts.some(isNaN)) return null
+  return new Date(parts[0], parts[1] - 1, parts[2])
+}
+
+// ─── Task calendar (single task) ───────────────────────────────────────────────
+function TaskCalendar({ task, onUpdate, updating }) {
+  const [viewDate, setViewDate] = useState(() => {
+    const d = new Date()
+    if (task?.startDate) {
+      const start = parseDateOnly(task.startDate)
+      if (start) return { year: start.getFullYear(), month: start.getMonth() }
+    }
+    return { year: d.getFullYear(), month: d.getMonth() }
+  })
+
+  const hasDates = task?.startDate || task?.endDate
+  const { startPad, days } = getDaysInMonth(viewDate.year, viewDate.month)
+  const monthName = new Date(viewDate.year, viewDate.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const color = task?.calendarColor || '#6366F1'
+
+  const isTaskOnDay = (d) => {
+    if (!hasDates) return false
+    const cell = new Date(viewDate.year, viewDate.month, d)
+    cell.setHours(0, 0, 0, 0)
+    const start = parseDateOnly(task.startDate)
+    const end = task.endDate ? parseDateOnly(task.endDate) : null
+    const endDay = end ? new Date(end) : null
+    if (endDay) endDay.setHours(23, 59, 59, 999)
+    if (start && cell < start) return false
+    if (endDay && cell > endDay) return false
+    return true
+  }
+
+  const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+  const handleDateChange = (field, value) => {
+    if (!onUpdate) return
+    if (field === 'startDate') {
+      onUpdate({ startDate: value || null, endDate: task?.endDate || null })
+    } else {
+      onUpdate({ startDate: task?.startDate || null, endDate: value || null })
+    }
+  }
+
+  const handleColorChange = (value) => {
+    if (!onUpdate) return
+    onUpdate({ calendarColor: value })
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <h3 className="text-sm font-semibold text-gray-900">Task timeline</h3>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setViewDate((v) => (v.month === 0 ? { year: v.year - 1, month: 11 } : { ...v, month: v.month - 1 }))}
+            className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+            aria-label="Previous month"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <span className="text-sm font-medium text-gray-700 min-w-[120px] text-center">{monthName}</span>
+          <button
+            onClick={() => setViewDate((v) => (v.month === 11 ? { year: v.year + 1, month: 0 } : { ...v, month: v.month + 1 }))}
+            className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+            aria-label="Next month"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div className="p-4">
+        {onUpdate && (
+          <div className="flex flex-wrap items-center gap-4 mb-4 p-3 rounded-xl bg-gray-50 border border-gray-100">
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-medium text-gray-500">Start</label>
+              <input
+                type="date"
+                value={task?.startDate ?? ''}
+                onChange={(e) => handleDateChange('startDate', e.target.value || null)}
+                disabled={updating}
+                className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none disabled:opacity-50"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-medium text-gray-500">End</label>
+              <input
+                type="date"
+                value={task?.endDate ?? ''}
+                onChange={(e) => handleDateChange('endDate', e.target.value || null)}
+                disabled={updating}
+                className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none disabled:opacity-50"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500">Color</span>
+              <div className="flex gap-1">
+                {CALENDAR_COLORS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => handleColorChange(c.value)}
+                    disabled={updating}
+                    className={`w-6 h-6 rounded-md border-2 transition-all disabled:opacity-50 ${
+                      (task?.calendarColor || CALENDAR_COLORS[0].value) === c.value ? 'border-gray-900 scale-110' : 'border-transparent hover:border-gray-300'
+                    }`}
+                    style={{ backgroundColor: c.value }}
+                    title={c.label}
+                    aria-label={c.label}
+                  />
+                ))}
+              </div>
+            </div>
+            {updating && <Spinner size="sm" />}
+          </div>
+        )}
+        {hasDates ? (
+          <>
+            <p className="text-xs text-gray-500 mb-3">
+              {task.startDate ? formatDate(task.startDate) : '?'} — {task.endDate ? formatDate(task.endDate) : '?'}
+            </p>
+            <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-lg overflow-hidden">
+              {dayHeaders.map((h) => (
+                <div key={h} className="bg-gray-50 px-1 py-1.5 text-center text-xs font-semibold text-gray-500 uppercase">
+                  {h}
+                </div>
+              ))}
+              {Array.from({ length: startPad }, (_, i) => (
+                <div key={`pad-${i}`} className="bg-gray-50 min-h-[48px] p-1" />
+              ))}
+              {Array.from({ length: days }, (_, i) => {
+                const d = i + 1
+                const dateStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+                const highlighted = isTaskOnDay(d)
+                const isToday = dateStr === todayStr
+                return (
+                  <div
+                    key={d}
+                    className={`min-h-[48px] p-1 flex items-center justify-center text-sm ${
+                      isToday ? 'ring-2 ring-indigo-400 ring-inset rounded' : ''
+                    } ${highlighted ? 'font-semibold' : 'text-gray-400'}`}
+                    style={highlighted ? { backgroundColor: `${color}25`, color } : { backgroundColor: 'white' }}
+                  >
+                    {d}
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-gray-500 py-4">
+            {onUpdate ? 'Set start and end dates above to display on the calendar.' : 'No dates assigned. Edit the task to add start and end dates for the calendar.'}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Offer form ───────────────────────────────────────────────────────────────
-function OfferForm({ initial, onSubmit, loading, error }) {
+function OfferForm({ initial, onSubmit, loading, error, teamMembers }) {
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
@@ -36,6 +232,7 @@ function OfferForm({ initial, onSubmit, loading, error }) {
     quantity: initial?.quantity ?? '',
     unitCost: initial?.unitCost ?? '',
     duration: initial?.duration ?? '',
+    assigneeIds: initial?.assigneeIds ?? [],
   })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
 
@@ -52,6 +249,7 @@ function OfferForm({ initial, onSubmit, loading, error }) {
       quantity: form.quantity !== '' ? parseFloat(form.quantity) : null,
       unitCost: form.unitCost !== '' ? parseFloat(form.unitCost) : null,
       duration: form.duration.trim() || null,
+      assigneeIds: form.assigneeIds?.length ? form.assigneeIds : null,
     })
   }
   return (
@@ -88,6 +286,13 @@ function OfferForm({ initial, onSubmit, loading, error }) {
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration (optional)</label>
         <input name="duration" value={form.duration} onChange={handleChange} placeholder="e.g. 3 Months or 2 Weeks" className={inputClass} />
       </div>
+      {teamMembers && (
+        <AssigneeSelector
+          teamMembers={teamMembers}
+          value={form.assigneeIds}
+          onChange={(ids) => setForm((p) => ({ ...p, assigneeIds: ids }))}
+        />
+      )}
       {previewTotal != null && (
         <div className="flex items-center justify-between bg-indigo-50 rounded-xl px-4 py-2.5 text-sm">
           <span className="text-indigo-600 font-medium">Line total</span>
@@ -147,12 +352,26 @@ function DescriptionEditForm({ offer, onSubmit, onClose, loading, error }) {
 }
 
 // ─── Task edit form ───────────────────────────────────────────────────────────
-function TaskForm({ initial, onSubmit, loading, error }) {
-  const [form, setForm] = useState({ name: initial?.name ?? '', description: initial?.description ?? '' })
+function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
+  const [form, setForm] = useState({
+    name: initial?.name ?? '',
+    description: initial?.description ?? '',
+    assigneeIds: initial?.assigneeIds ?? [],
+    startDate: initial?.startDate ?? '',
+    endDate: initial?.endDate ?? '',
+    calendarColor: initial?.calendarColor ?? CALENDAR_COLORS[0].value,
+  })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSubmit({ name: form.name.trim(), description: form.description.trim() || null })
+    onSubmit({
+      name: form.name.trim(),
+      description: form.description.trim() || null,
+      assigneeIds: form.assigneeIds?.length ? form.assigneeIds : null,
+      startDate: form.startDate || null,
+      endDate: form.endDate || null,
+      calendarColor: form.calendarColor || null,
+    })
   }
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -165,6 +384,41 @@ function TaskForm({ initial, onSubmit, loading, error }) {
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
         <textarea name="description" value={form.description} onChange={handleChange} rows={3} placeholder="Short summary of the task name" className={`${inputClass} resize-none`} />
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Start date (for calendar)</label>
+          <input name="startDate" type="date" value={form.startDate} onChange={handleChange} className={inputClass} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">End date (for calendar)</label>
+          <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={inputClass} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Calendar color</label>
+        <div className="flex flex-wrap gap-2 mt-1.5">
+          {CALENDAR_COLORS.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => setForm((p) => ({ ...p, calendarColor: c.value }))}
+              className={`w-8 h-8 rounded-lg border-2 transition-all ${
+                form.calendarColor === c.value ? 'border-gray-900 scale-110' : 'border-transparent hover:border-gray-300'
+              }`}
+              style={{ backgroundColor: c.value }}
+              title={c.label}
+              aria-label={c.label}
+            />
+          ))}
+        </div>
+      </div>
+      {teamMembers && (
+        <AssigneeSelector
+          teamMembers={teamMembers}
+          value={form.assigneeIds}
+          onChange={(ids) => setForm((p) => ({ ...p, assigneeIds: ids }))}
+        />
+      )}
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
           {loading && <Spinner size="sm" />}
@@ -239,11 +493,18 @@ export default function TaskDetail() {
 
   const [taskModal, setTaskModal] = useState(false)
   const [offerModal, setOfferModal] = useState(null)
+  const [emailModal, setEmailModal] = useState(null) // { toEmails } when open
   const [descriptionEditTarget, setDescriptionEditTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [mutationError, setMutationError] = useState(null)
+  const [assigneesExpanded, setAssigneesExpanded] = useState(false)
 
   const { data: projectData } = useQuery(GET_PROJECT, { variables: { id: projectId, tenantId }, skip: !tenantId })
+  const { data: teamData } = useQuery(GET_USER_PROFILES, {
+    variables: { tenantId, page: { limit: 100, offset: 0 } },
+    skip: !tenantId,
+  })
+  const teamMembers = teamData?.userProfiles?.items ?? []
   const { data: taskData, loading: taskLoading, refetch: refetchTask } = useQuery(GET_TASK, {
     variables: { id: taskId, projectId, tenantId },
     skip: !tenantId,
@@ -268,6 +529,11 @@ export default function TaskDetail() {
   })
   const [deleteOffer, { loading: deletingOffer }] = useMutation(DELETE_OFFER, {
     onCompleted: () => { setDeleteTarget(null); refetchOffers() },
+    onError: (e) => setMutationError(e.message),
+  })
+
+  const [sendProjectEmail, { loading: sendingEmail }] = useMutation(SEND_PROJECT_EMAIL, {
+    onCompleted: () => setEmailModal(null),
     onError: (e) => setMutationError(e.message),
   })
 
@@ -301,26 +567,134 @@ export default function TaskDetail() {
       {/* Task header */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-6">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-gray-900">{task?.name}</h1>
             {task?.description && <p className="text-sm text-gray-500 mt-1">{task.description}</p>}
+            <div className="mt-4">
+              <div className="rounded-xl border border-gray-200 bg-gray-50/50 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setAssigneesExpanded((e) => !e)}
+                  className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left text-sm font-medium text-gray-700 hover:bg-gray-100/80 transition-colors"
+                >
+                  <span>
+                    Assigned team members
+                    <span className="text-gray-400 font-normal ml-1">
+                      ({(task?.assigneeIds ?? []).length} assigned)
+                    </span>
+                  </span>
+                  <svg
+                    className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${assigneesExpanded ? 'rotate-180' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {assigneesExpanded && (
+                  <div className="px-4 pb-4 pt-0">
+                    <AssigneeSelector
+                      teamMembers={teamMembers}
+                      value={task?.assigneeIds ?? []}
+                      onChange={(assigneeIds) =>
+                        updateTask({
+                          variables: {
+                            id: taskId,
+                            projectId,
+                            tenantId,
+                            input: {
+                              name: task?.name,
+                              description: task?.description ?? null,
+                              assigneeIds: assigneeIds ?? [],
+                              startDate: task?.startDate ?? null,
+                              endDate: task?.endDate ?? null,
+                              calendarColor: task?.calendarColor ?? null,
+                            },
+                          },
+                        })
+                      }
+                      label={null}
+                      disabled={updatingTask}
+                    />
+                    {updatingTask && (
+                      <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
+                        <Spinner size="sm" />
+                        <span>Saving…</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-          <button
-            onClick={() => { setMutationError(null); setTaskModal(true) }}
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors flex-shrink-0"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-            </svg>
-            Edit task
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => {
+                const assigneeIds = task?.assigneeIds ?? []
+                const toEmails = assigneeIds
+                  .map((id) => teamMembers.find((m) => m.id === id)?.email)
+                  .filter(Boolean)
+                if (toEmails.length > 0) {
+                  setEmailModal({
+                    toEmails,
+                    defaultSubject: `Task: ${task?.name ?? ''}`,
+                    defaultBody: `Hi,\n\nRegarding task "${task?.name ?? ''}" in project "${project?.name ?? ''}":\n\n`,
+                  })
+                }
+              }}
+              disabled={!task?.assigneeIds?.length}
+              title={task?.assigneeIds?.length ? `Email ${task.assigneeIds.length} assignee(s)` : 'No assignees on this task'}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Email assignees
+            </button>
+            <button
+              onClick={() => { setMutationError(null); setTaskModal(true) }}
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors flex-shrink-0"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+              </svg>
+              Edit task
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Cost Summary — compact at top */}
-      <div className="bg-white rounded-2xl border border-gray-100 px-6 py-4 mb-6 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900">Cost Summary</h3>
-        <span className="text-lg font-bold text-indigo-600">{formatCurrency(grandTotal)}</span>
+      {/* Cost Summary + Task Calendar */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <div className="bg-white rounded-2xl border border-gray-100 px-6 py-4 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900">Cost Summary</h3>
+          <span className="text-lg font-bold text-indigo-600">{formatCurrency(grandTotal)}</span>
+        </div>
+        <div className="lg:col-span-2">
+          <TaskCalendar
+            task={task}
+            onUpdate={(updates) =>
+              updateTask({
+                variables: {
+                  id: taskId,
+                  projectId,
+                  tenantId,
+                  input: {
+                    name: task?.name,
+                    description: task?.description ?? null,
+                    assigneeIds: task?.assigneeIds ?? null,
+                    startDate: updates.startDate ?? task?.startDate ?? null,
+                    endDate: updates.endDate ?? task?.endDate ?? null,
+                    calendarColor: updates.calendarColor ?? task?.calendarColor ?? null,
+                  },
+                },
+              })
+            }
+            updating={updatingTask}
+          />
+        </div>
       </div>
 
       {/* Offers — full width, takes rest of page */}
@@ -345,7 +719,7 @@ export default function TaskDetail() {
           ) : (
             <div className="flex-1 min-h-0 overflow-auto">
               <SectionTable
-                headers={['Name', 'Description', 'UoM', 'Qty', 'Unit Cost', 'Duration', 'Total']}
+                headers={['Name', 'Description', 'UoM', 'Qty', 'Unit Cost', 'Duration', 'Assignees', 'Total']}
                 rows={offers.map((offer) => ({
                   id: offer.id,
                   original: offer,
@@ -363,6 +737,13 @@ export default function TaskDetail() {
                     <span className="text-gray-700">{offer.quantity ?? '—'}</span>,
                     <span className="text-gray-500 text-xs">{formatCurrency(offer.unitCost)}</span>,
                     <span className="text-gray-500 text-xs">{offer.duration || '—'}</span>,
+                    <span className="text-gray-500 text-xs">
+                      {offer.assigneeIds?.length
+                        ? offer.assigneeIds
+                            .map((id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id)
+                            .join(', ') || '—'
+                        : '—'}
+                    </span>,
                     <span className="font-medium text-gray-700">{formatCurrency(offer.total)}</span>,
                   ],
                 }))}
@@ -392,6 +773,7 @@ export default function TaskDetail() {
             onSubmit={(input) => updateTask({ variables: { id: taskId, projectId, tenantId, input } })}
             loading={updatingTask}
             error={mutationError}
+            teamMembers={teamMembers}
           />
         )}
       </Modal>
@@ -401,6 +783,7 @@ export default function TaskDetail() {
         {offerModal && (
           <OfferForm
             initial={offerModal.offer}
+            teamMembers={teamMembers}
             onSubmit={
               offerModal.mode === 'create'
                 ? (input) => createOffer({ variables: { input: { ...input, projectId, taskId, tenantId } } })
@@ -436,6 +819,7 @@ export default function TaskDetail() {
                     quantity: descriptionEditTarget.quantity,
                     unitCost: descriptionEditTarget.unitCost,
                     duration: descriptionEditTarget.duration,
+                    assigneeIds: descriptionEditTarget.assigneeIds,
                   },
                 },
               })
@@ -446,6 +830,33 @@ export default function TaskDetail() {
           />
         )}
       </Modal>
+
+      {/* Email compose modal */}
+      <EmailComposeModal
+        open={!!emailModal}
+        onClose={() => { setEmailModal(null); setMutationError(null) }}
+        toEmails={emailModal?.toEmails ?? []}
+        defaultSubject={emailModal?.defaultSubject ?? ''}
+        defaultBody={emailModal?.defaultBody ?? ''}
+        sending={sendingEmail}
+        error={mutationError}
+        onSend={({ subject, body }) => {
+          setMutationError(null)
+          sendProjectEmail({
+            variables: {
+              input: {
+                tenantId,
+                projectId,
+                taskId,
+                senderId: user?.id,
+                toEmails: emailModal?.toEmails ?? [],
+                subject,
+                body,
+              },
+            },
+          })
+        }}
+      />
 
       {/* Delete confirm */}
       <ConfirmDialog

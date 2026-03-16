@@ -182,6 +182,9 @@ export default function UserDetail() {
   const profile = data?.userProfile
   const isOwn = userId === currentUser?.id
   const isAdmin = currentUser?.role === 'ADMIN'
+  // Admin: can edit all fields of any member. Non-admin: can only edit own profile (not role/status).
+  const canEditProfile = isAdmin || isOwn
+  const canEditAllFields = isAdmin
 
   if (loading) return <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>
   if (!profile) return (
@@ -239,7 +242,7 @@ export default function UserDetail() {
         </div>
 
         <div className="px-6 py-4 border-t border-gray-100 flex flex-wrap gap-3">
-          {(isOwn || isAdmin) && (
+          {canEditProfile && (
             <button
               onClick={() => { setMutationError(null); setEditModal(true) }}
               className="flex items-center gap-2 text-sm font-medium text-gray-700 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600 px-4 py-2 rounded-xl transition-colors"
@@ -275,8 +278,8 @@ export default function UserDetail() {
       <Modal open={editModal} onClose={() => setEditModal(false)} title="Edit profile">
         <ProfileForm
           initial={profile}
-          isAdmin={isAdmin}
-          onSubmit={(input) => updateProfile({ variables: { id: userId, tenantId, input } })}
+          isAdmin={canEditAllFields}
+          onSubmit={(input) => updateProfile({ variables: { id: userId, tenantId, callerId: currentUser?.id, input } })}
           loading={updating}
           error={mutationError}
         />

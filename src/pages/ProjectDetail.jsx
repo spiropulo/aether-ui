@@ -13,8 +13,13 @@ import {
   UPDATE_TASK,
   DELETE_TASK,
   GET_OFFERS_BY_PROJECT,
+  GET_PROJECT_EMAILS,
+  SEND_PROJECT_EMAIL,
 } from '../api/projects'
-import { downloadPdf, requestProjectPricing } from '../api/estimate'
+import { GET_USER_PROFILES } from '../api/users'
+import AssigneeSelector from '../components/ui/AssigneeSelector'
+import { downloadPdf, requestProjectPricing, exportProjectPdf } from '../api/estimate'
+import EmailComposeModal from '../components/EmailComposeModal'
 import {
   GET_TENANT_TRAINING,
   GET_PROJECT_TRAINING,
@@ -40,6 +45,15 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+/** Parse YYYY-MM-DD (or YYYY-MM-DDTHH:mm:ss) as local date to avoid timezone shifts */
+function parseDateOnly(dateStr) {
+  if (!dateStr) return null
+  const s = String(dateStr).split('T')[0]
+  const parts = s.split('-').map(Number)
+  if (parts.length !== 3 || parts.some(isNaN)) return null
+  return new Date(parts[0], parts[1] - 1, parts[2])
+}
+
 function formatCurrency(n) {
   if (n == null || Number.isNaN(n)) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n)
@@ -50,6 +64,170 @@ function offerAmount(offer) {
   const q = offer.quantity ?? 0
   const c = offer.unitCost ?? 0
   return q * c
+}
+
+const CALENDAR_COLORS = [
+  { value: '#6366F1', label: 'Indigo' },
+  { value: '#3B82F6', label: 'Blue' },
+  { value: '#10B981', label: 'Emerald' },
+  { value: '#F59E0B', label: 'Amber' },
+  { value: '#EF4444', label: 'Red' },
+  { value: '#8B5CF6', label: 'Violet' },
+  { value: '#EC4899', label: 'Pink' },
+  { value: '#14B8A6', label: 'Teal' },
+]
+
+function getDaysInMonth(year, month) {
+  const first = new Date(year, month, 1)
+  const last = new Date(year, month + 1, 0)
+  return { startPad: first.getDay(), days: last.getDate() }
+}
+
+// ─── Project Calendar (tasks with dates) ────────────────────────────────────────
+function ProjectCalendar({ projectId, tasks, onSwitchToTasks, refetchTasks }) {
+  const [viewDate, setViewDate] = useState(() => {
+    const d = new Date()
+    return { year: d.getFullYear(), month: d.getMonth() }
+  })
+
+  const tasksWithDates = tasks.filter((t) => t.startDate || t.endDate)
+  const { startPad, days } = getDaysInMonth(viewDate.year, viewDate.month)
+  const monthName = new Date(viewDate.year, viewDate.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+  const tasksByDay = {}
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    tasksByDay[dateStr] = tasksWithDates.filter((t) => {
+      const start = parseDateOnly(t.startDate)
+      const end = t.endDate ? parseDateOnly(t.endDate) : null
+      const endDay = end ? new Date(end) : null
+      if (endDay) endDay.setHours(23, 59, 59, 999)
+      const cell = new Date(viewDate.year, viewDate.month, d)
+      cell.setHours(0, 0, 0, 0)
+      if (start && cell < start) return false
+      if (endDay && cell > endDay) return false
+      return true
+    })
+  }
+
+  const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <h2 className="text-base font-semibold text-gray-900">Calendar</h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setViewDate((v) => (v.month === 0 ? { year: v.year - 1, month: 11 } : { ...v, month: v.month - 1 }))}
+            className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+            aria-label="Previous month"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <span className="text-sm font-medium text-gray-700 min-w-[140px] text-center">{monthName}</span>
+          <button
+            onClick={() => setViewDate((v) => (v.month === 11 ? { year: v.year + 1, month: 0 } : { ...v, month: v.month + 1 }))}
+            className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+            aria-label="Next month"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setViewDate({ year: today.getFullYear(), month: today.getMonth() })}
+            className="ml-2 px-3 py-1.5 text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+          >
+            Today
+          </button>
+        </div>
+      </div>
+      <div className="p-4">
+        <p className="text-sm text-gray-500 mb-4">
+          Assign start and end dates to tasks in the Tasks tab to see them here.
+        </p>
+        <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden">
+          {dayHeaders.map((h) => (
+            <div key={h} className="bg-gray-50 px-2 py-2 text-center text-xs font-semibold text-gray-500 uppercase">
+              {h}
+            </div>
+          ))}
+          {Array.from({ length: startPad }, (_, i) => (
+            <div key={`pad-${i}`} className="bg-gray-50 min-h-[80px] p-2" />
+          ))}
+          {Array.from({ length: days }, (_, i) => {
+            const d = i + 1
+            const dateStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+            const dayTasks = tasksByDay[dateStr] ?? []
+            const isToday = dateStr === todayStr
+
+            return (
+              <div
+                key={d}
+                className={`min-h-[80px] p-2 bg-white ${isToday ? 'ring-2 ring-indigo-400 ring-inset rounded' : ''}`}
+              >
+                <span
+                  className={`inline-block w-7 h-7 flex items-center justify-center rounded-full text-sm font-medium ${
+                    isToday ? 'bg-indigo-600 text-white' : 'text-gray-700'
+                  }`}
+                >
+                  {d}
+                </span>
+                <div className="mt-1 space-y-1">
+                  {dayTasks.slice(0, 3).map((t) => {
+                    const color = t.calendarColor || '#6366F1'
+                    return (
+                      <Link
+                        key={t.id}
+                        to={`/app/projects/${projectId}/tasks/${t.id}`}
+                        className="block truncate text-xs px-1.5 py-0.5 rounded transition-opacity hover:opacity-90"
+                        style={{
+                          backgroundColor: `${color}20`,
+                          color: color,
+                          borderLeft: `3px solid ${color}`,
+                        }}
+                        title={`${t.name} — ${t.startDate ? formatDate(t.startDate) : '?'} to ${t.endDate ? formatDate(t.endDate) : '?'}`}
+                      >
+                        {t.name}
+                      </Link>
+                    )
+                  })}
+                  {dayTasks.length > 3 && (
+                    <span className="text-xs text-gray-500 px-1">+{dayTasks.length - 3} more</span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {tasksWithDates.length === 0 && (
+          <div className="mt-6">
+            <EmptyState
+              title="No tasks with dates"
+              description="Edit a task in the Tasks tab and add a start date or end date to see it on the calendar."
+              action={
+                <button
+                  onClick={() => { refetchTasks?.(); onSwitchToTasks?.() }}
+                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
+                >
+                  Go to Tasks
+                </button>
+              }
+              icon={
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                </svg>
+              }
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ─── Project edit form ────────────────────────────────────────────────────────
@@ -123,12 +301,26 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
 }
 
 // ─── Task form ────────────────────────────────────────────────────────────────
-function TaskForm({ initial, onSubmit, loading, error }) {
-  const [form, setForm] = useState({ name: initial?.name ?? '', description: initial?.description ?? '' })
+function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
+  const [form, setForm] = useState({
+    name: initial?.name ?? '',
+    description: initial?.description ?? '',
+    assigneeIds: initial?.assigneeIds ?? [],
+    startDate: initial?.startDate ?? '',
+    endDate: initial?.endDate ?? '',
+    calendarColor: initial?.calendarColor ?? CALENDAR_COLORS[0].value,
+  })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSubmit({ name: form.name.trim(), description: form.description.trim() || null })
+    onSubmit({
+      name: form.name.trim(),
+      description: form.description.trim() || null,
+      assigneeIds: form.assigneeIds?.length ? form.assigneeIds : null,
+      startDate: form.startDate || null,
+      endDate: form.endDate || null,
+      calendarColor: form.calendarColor || null,
+    })
   }
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -141,6 +333,41 @@ function TaskForm({ initial, onSubmit, loading, error }) {
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
         <textarea name="description" value={form.description} onChange={handleChange} rows={3} placeholder="Short summary of the task name" className={`${inputClass} resize-none`} />
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Start date (for calendar)</label>
+          <input name="startDate" type="date" value={form.startDate} onChange={handleChange} className={inputClass} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">End date (for calendar)</label>
+          <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={inputClass} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Calendar color</label>
+        <div className="flex flex-wrap gap-2 mt-1.5">
+          {CALENDAR_COLORS.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => setForm((p) => ({ ...p, calendarColor: c.value }))}
+              className={`w-8 h-8 rounded-lg border-2 transition-all ${
+                form.calendarColor === c.value ? 'border-gray-900 scale-110' : 'border-transparent hover:border-gray-300'
+              }`}
+              style={{ backgroundColor: c.value }}
+              title={c.label}
+              aria-label={c.label}
+            />
+          ))}
+        </div>
+      </div>
+      {teamMembers && (
+        <AssigneeSelector
+          teamMembers={teamMembers}
+          value={form.assigneeIds}
+          onChange={(ids) => setForm((p) => ({ ...p, assigneeIds: ids }))}
+        />
+      )}
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
           {loading && <Spinner size="sm" />}
@@ -200,9 +427,14 @@ export default function ProjectDetail() {
   const [trainingModal, setTrainingModal] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [pricingLoading, setPricingLoading] = useState(false)
   const [pricingResult, setPricingResult] = useState(null)
   const [pricingModal, setPricingModal] = useState(false)
+  const [sourcePdfBannerHidden, setSourcePdfBannerHidden] = useState(false)
+  const [emailModal, setEmailModal] = useState(null) // { type: 'project'|'task', taskId?, taskName?, toEmails }
+  const [emailSearch, setEmailSearch] = useState('')
+  const [emailSearchInput, setEmailSearchInput] = useState('')
 
   const [mutationError, setMutationError] = useState(null)
 
@@ -226,6 +458,12 @@ export default function ProjectDetail() {
   useEffect(() => {
     setTaskOffset(0)
   }, [taskSearch, taskSortBy, taskSortDir])
+
+  useEffect(() => {
+    if (!projectId || typeof window === 'undefined') return
+    setSourcePdfBannerHidden(localStorage.getItem(`aether_hide_source_pdf_${projectId}`) === 'true')
+  }, [projectId])
+
   const { data: tasksData, loading: tasksLoading, refetch: refetchTasks } = useQuery(GET_TASKS, {
     variables: {
       projectId,
@@ -233,6 +471,11 @@ export default function ProjectDetail() {
       page: taskSearchActive ? { limit: 500, offset: 0 } : { limit: PAGE_SIZE, offset: taskOffset },
     },
     skip: !tenantId,
+  })
+
+  const { data: calendarTasksData, refetch: refetchCalendarTasks } = useQuery(GET_TASKS, {
+    variables: { projectId, tenantId, page: { limit: 500, offset: 0 } },
+    skip: !tenantId || activeTab !== 'calendar',
   })
 
   const { data: trainingData, loading: trainingLoading, refetch: refetchTraining } = useQuery(GET_PROJECT_TRAINING, {
@@ -258,6 +501,25 @@ export default function ProjectDetail() {
     variables: { tenantId, projectId, page: { limit: 1, offset: 0 } },
     skip: !tenantId || !projectId,
   })
+  const { data: teamData } = useQuery(GET_USER_PROFILES, {
+    variables: { tenantId, page: { limit: 100, offset: 0 } },
+    skip: !tenantId,
+  })
+  const { data: emailsData, refetch: refetchEmails } = useQuery(GET_PROJECT_EMAILS, {
+    variables: { projectId, tenantId },
+    skip: !tenantId || !projectId,
+  })
+  const teamMembers = teamData?.userProfiles?.items ?? []
+  const projectEmails = emailsData?.projectEmails ?? []
+  const emailSearchLower = emailSearch.trim().toLowerCase()
+  const filteredEmails = emailSearchLower
+    ? projectEmails.filter((e) => {
+        const subject = (e.subject ?? '').toLowerCase()
+        const body = (e.body ?? '').toLowerCase()
+        const toStr = (e.toEmails ?? []).join(' ').toLowerCase()
+        return subject.includes(emailSearchLower) || body.includes(emailSearchLower) || toStr.includes(emailSearchLower)
+      })
+    : projectEmails
 
   const hasTenantTraining = (tenantTrainingCheck?.tenantTrainingData?.total ?? 0) > 0
   const hasTenantCatalog = (tenantPretrainCheck?.tenantSelectedPretrainData?.length ?? 0) > 0
@@ -275,12 +537,12 @@ export default function ProjectDetail() {
   })
 
   const [createTask, { loading: creatingTask }] = useMutation(CREATE_TASK, {
-    onCompleted: () => { setTaskModal(null); refetchTasks() },
+    onCompleted: () => { setTaskModal(null); refetchTasks(); refetchCalendarTasks?.() },
     onError: (e) => setMutationError(e.message),
   })
 
   const [updateTask, { loading: updatingTask }] = useMutation(UPDATE_TASK, {
-    onCompleted: () => { setTaskModal(null); refetchTasks() },
+    onCompleted: () => { setTaskModal(null); refetchTasks(); refetchCalendarTasks?.() },
     onError: (e) => setMutationError(e.message),
   })
 
@@ -301,6 +563,11 @@ export default function ProjectDetail() {
 
   const [deleteTraining, { loading: deletingTraining }] = useMutation(DELETE_TRAINING, {
     onCompleted: () => { setDeleteTarget(null); refetchTraining() },
+    onError: (e) => setMutationError(e.message),
+  })
+
+  const [sendProjectEmail, { loading: sendingEmail }] = useMutation(SEND_PROJECT_EMAIL, {
+    onCompleted: () => { setEmailModal(null); refetchEmails() },
     onError: (e) => setMutationError(e.message),
   })
 
@@ -327,11 +594,34 @@ export default function ProjectDetail() {
         setMutationError(
           'Configure tenant or project training data first. Add custom data or AI Catalog selections in AI Training, or add project-specific training in the AI Training Data tab below.'
         )
+      } else if (msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('billing')) {
+        setMutationError(
+          'AI pricing limit reached for this billing period. Upgrade your plan in Settings or wait until the next cycle.'
+        )
       } else {
         setMutationError(msg)
       }
     } finally {
       setPricingLoading(false)
+    }
+  }
+
+  const handleExportProjectPdf = async () => {
+    if (!projectId || !tenantId) return
+    setExportingPdf(true)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+      const blob = await exportProjectPdf(projectId, tenantId, { token })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `project-${project?.name || 'estimate'}.pdf`.replace(/[^a-zA-Z0-9.-]/g, '_')
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setMutationError(err.message)
+    } finally {
+      setExportingPdf(false)
     }
   }
 
@@ -448,36 +738,105 @@ export default function ProjectDetail() {
                 {project.endDate && <span>Due: {formatDate(project.endDate)}</span>}
               </div>
             )}
-            {sourcePdfUploadId && (
-              <div className="mt-4 p-3 rounded-xl bg-indigo-50 border border-indigo-100">
-                <p className="text-sm font-medium text-indigo-900">Source PDF</p>
-                <p className="text-xs text-indigo-700 mt-0.5">This project was created from an uploaded PDF estimate.</p>
-                <div className="flex flex-wrap gap-3 mt-3">
+            <div className="mt-4 flex flex-wrap gap-3 items-center">
+              {(() => {
+                const allTasks = calendarTasksData?.tasks?.items ?? tasksData?.tasks?.items ?? []
+                const assigneeIds = [...new Set(allTasks.flatMap((t) => t.assigneeIds ?? []))]
+                const projectAssigneeEmails = assigneeIds
+                  .map((id) => teamMembers.find((m) => m.id === id)?.email)
+                  .filter(Boolean)
+                return (
                   <button
-                    onClick={handleDownloadSourcePdf}
-                    disabled={downloadingPdf}
-                    className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50"
+                    onClick={() => {
+                      if (projectAssigneeEmails.length === 0) return
+                      setEmailModal({
+                        type: 'project',
+                        toEmails: projectAssigneeEmails,
+                        defaultSubject: `Project: ${project?.name ?? 'Estimate'}`,
+                        defaultBody: `Hi,\n\nRegarding project "${project?.name ?? ''}":\n\n`,
+                      })
+                    }}
+                    disabled={projectAssigneeEmails.length === 0}
+                    title={projectAssigneeEmails.length === 0 ? 'No assignees on project tasks' : `Email ${projectAssigneeEmails.length} assignee(s)`}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {downloadingPdf ? (
-                      <Spinner size="sm" />
-                    ) : (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                    )}
-                    Download source PDF
-                  </button>
-                  <Link
-                    to="/app/pdf-uploads"
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-700 hover:text-indigo-800"
-                  >
-                    View training & agent activity
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                     </svg>
-                  </Link>
+                    Email project assignees
+                  </button>
+                )
+              })()}
+              <button
+                onClick={handleExportProjectPdf}
+                disabled={exportingPdf}
+                className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50"
+              >
+                {exportingPdf ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+                Export project PDF
+              </button>
+              {sourcePdfUploadId && sourcePdfBannerHidden && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSourcePdfBannerHidden(false)
+                    localStorage.removeItem(`aether_hide_source_pdf_${projectId}`)
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline"
+                >
+                  Source PDF
+                </button>
+              )}
+            </div>
+            {sourcePdfUploadId && !sourcePdfBannerHidden && (
+                <div className="mt-4 p-3 rounded-xl bg-indigo-50 border border-indigo-100 relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourcePdfBannerHidden(true)
+                      localStorage.setItem(`aether_hide_source_pdf_${projectId}`, 'true')
+                    }}
+                    className="absolute top-2 right-2 p-1 rounded-lg text-indigo-400 hover:text-indigo-600 hover:bg-indigo-100/80 transition-colors"
+                    title="Hide"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                  <p className="text-sm font-medium text-indigo-900 pr-8">Source PDF</p>
+                  <p className="text-xs text-indigo-700 mt-0.5">This project was created from an uploaded PDF estimate.</p>
+                  <div className="flex flex-wrap gap-3 mt-3">
+                    <button
+                      onClick={handleDownloadSourcePdf}
+                      disabled={downloadingPdf}
+                      className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50"
+                    >
+                      {downloadingPdf ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      )}
+                      Download source PDF
+                    </button>
+                    <Link
+                      to="/app/pdf-uploads"
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-700 hover:text-indigo-800"
+                    >
+                      View training & agent activity
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                      </svg>
+                    </Link>
+                  </div>
                 </div>
-              </div>
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
@@ -549,7 +908,9 @@ export default function ProjectDetail() {
       <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-xl w-fit">
         {[
           { key: 'tasks', label: 'Tasks' },
+          { key: 'calendar', label: 'Calendar' },
           { key: 'training', label: 'AI Training Data' },
+          { key: 'emails', label: 'Emails' },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -649,6 +1010,9 @@ export default function ProjectDetail() {
                       <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Task total</span>
                     </th>
                     <th className="text-left px-6 py-3 hidden md:table-cell">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Assignees</span>
+                    </th>
+                    <th className="text-left px-6 py-3 hidden md:table-cell">
                       <button
                         onClick={() => {
                           if (taskSortBy === 'createdAt') setTaskSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -682,11 +1046,43 @@ export default function ProjectDetail() {
                       <td className="px-6 py-4 text-right font-medium text-gray-900">
                         {formatCurrency(taskTotals[task.id])}
                       </td>
+                      <td className="px-6 py-4 text-xs text-gray-500 hidden md:table-cell max-w-32 truncate">
+                        {task.assigneeIds?.length
+                          ? task.assigneeIds
+                              .map((id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id)
+                              .join(', ') || '—'
+                          : '—'}
+                      </td>
                       <td className="px-6 py-4 text-xs text-gray-400 hidden md:table-cell">
                         {task.createdAt ? formatDate(task.createdAt) : '—'}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-1">
+                          {(task.assigneeIds?.length ?? 0) > 0 && (
+                            <button
+                              onClick={() => {
+                                const toEmails = (task.assigneeIds ?? [])
+                                  .map((id) => teamMembers.find((m) => m.id === id)?.email)
+                                  .filter(Boolean)
+                                if (toEmails.length > 0) {
+                                  setEmailModal({
+                                    type: 'task',
+                                    taskId: task.id,
+                                    taskName: task.name,
+                                    toEmails,
+                                    defaultSubject: `Task: ${task.name}`,
+                                    defaultBody: `Hi,\n\nRegarding task "${task.name}" in project "${project?.name ?? ''}":\n\n`,
+                                  })
+                                }
+                              }}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                              title="Email task assignees"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                              </svg>
+                            </button>
+                          )}
                           <button
                             onClick={() => { setMutationError(null); setTaskModal({ mode: 'edit', task }) }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
@@ -715,7 +1111,95 @@ export default function ProjectDetail() {
         </div>
       )}
 
+      {/* Calendar tab */}
+      {activeTab === 'calendar' && (
+        <ProjectCalendar
+          projectId={projectId}
+          tasks={calendarTasksData?.tasks?.items ?? []}
+          onSwitchToTasks={() => setActiveTab('tasks')}
+          refetchTasks={() => { refetchTasks(); refetchCalendarTasks() }}
+        />
+      )}
+
       {/* Training data tab */}
+      {activeTab === 'emails' && (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-6 py-4 border-b border-gray-100">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1 min-w-0">
+              <h2 className="text-base font-semibold text-gray-900">
+                Email history <span className="text-gray-400 font-normal text-sm ml-1">({filteredEmails.length}{emailSearch ? ` of ${projectEmails.length}` : ''})</span>
+              </h2>
+              <form
+                onSubmit={(e) => { e.preventDefault(); setEmailSearch(emailSearchInput) }}
+                className="flex gap-2 flex-1 max-w-sm"
+              >
+                <input
+                  value={emailSearchInput}
+                  onChange={(e) => setEmailSearchInput(e.target.value)}
+                  placeholder="Search subject, recipients, body…"
+                  className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition"
+                />
+                <button type="submit" className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl transition-colors">
+                  Search
+                </button>
+                {emailSearch && (
+                  <button type="button" onClick={() => { setEmailSearch(''); setEmailSearchInput('') }} className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">
+                    Clear
+                  </button>
+                )}
+              </form>
+            </div>
+          </div>
+          <div className="p-6">
+            {projectEmails.length === 0 ? (
+              <EmptyState
+                title="No emails sent yet"
+                description="Use the &quot;Email project assignees&quot; button above to send an email. All emails sent for this project will appear here."
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                }
+              />
+            ) : filteredEmails.length === 0 ? (
+              <EmptyState
+                title="No matching emails"
+                description="Try a different search term."
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                }
+              />
+            ) : (
+              <div className="space-y-4">
+                {filteredEmails.map((e) => (
+                  <div key={e.id} className="p-4 rounded-xl border border-gray-100 bg-gray-50/50">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-900">{e.subject}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          To: {e.toEmails?.join(', ')}
+                          {e.taskId && (
+                            <span className="ml-2 text-indigo-600">(task assignees)</span>
+                          )}
+                        </p>
+                        {e.body && (
+                          <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap line-clamp-3">{e.body}</p>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">
+                        {e.sentAt ? formatDate(e.sentAt) : '—'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'training' && (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -816,6 +1300,7 @@ export default function ProjectDetail() {
         {taskModal && (
           <TaskForm
             initial={taskModal.task}
+            teamMembers={teamMembers}
             onSubmit={
               taskModal.mode === 'create'
                 ? (input) => createTask({ variables: { input: { ...input, projectId, tenantId } } })
@@ -847,6 +1332,33 @@ export default function ProjectDetail() {
           />
         )}
       </Modal>
+
+      {/* Email compose modal */}
+      <EmailComposeModal
+        open={!!emailModal}
+        onClose={() => { setEmailModal(null); setMutationError(null) }}
+        toEmails={emailModal?.toEmails ?? []}
+        defaultSubject={emailModal?.defaultSubject ?? ''}
+        defaultBody={emailModal?.defaultBody ?? ''}
+        sending={sendingEmail}
+        error={mutationError}
+        onSend={({ subject, body }) => {
+          setMutationError(null)
+          sendProjectEmail({
+            variables: {
+              input: {
+                tenantId,
+                projectId,
+                taskId: emailModal?.taskId ?? null,
+                senderId: user?.id,
+                toEmails: emailModal?.toEmails ?? [],
+                subject,
+                body,
+              },
+            },
+          })
+        }}
+      />
 
       {/* Delete confirm */}
       <ConfirmDialog

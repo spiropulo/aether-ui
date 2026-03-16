@@ -100,6 +100,10 @@ export const GET_TASKS = gql`
         id
         name
         description
+        assigneeIds
+        startDate
+        endDate
+        calendarColor
         projectId
         tenantId
         createdAt
@@ -119,6 +123,10 @@ export const GET_TASK = gql`
       id
       name
       description
+      assigneeIds
+      startDate
+      endDate
+      calendarColor
       projectId
       tenantId
       createdAt
@@ -133,6 +141,10 @@ export const CREATE_TASK = gql`
       id
       name
       description
+      assigneeIds
+      startDate
+      endDate
+      calendarColor
       projectId
       tenantId
       createdAt
@@ -146,6 +158,10 @@ export const UPDATE_TASK = gql`
       id
       name
       description
+      assigneeIds
+      startDate
+      endDate
+      calendarColor
       updatedAt
     }
   }
@@ -185,6 +201,7 @@ export const GET_OFFERS = gql`
         unitCost
         duration
         total
+        assigneeIds
         projectId
         taskId
         tenantId
@@ -210,6 +227,7 @@ export const CREATE_OFFER = gql`
       unitCost
       duration
       total
+      assigneeIds
       projectId
       taskId
       tenantId
@@ -229,6 +247,7 @@ export const UPDATE_OFFER = gql`
       unitCost
       duration
       total
+      assigneeIds
       updatedAt
     }
   }
@@ -237,5 +256,37 @@ export const UPDATE_OFFER = gql`
 export const DELETE_OFFER = gql`
   mutation DeleteOffer($id: ID!, $projectId: String!, $taskId: String!, $tenantId: String!) {
     deleteOffer(id: $id, projectId: $projectId, taskId: $taskId, tenantId: $tenantId)
+  }
+`
+
+// ─── Project Email ───────────────────────────────────────────────────────────
+
+export const GET_PROJECT_EMAILS = gql`
+  query GetProjectEmails($projectId: String!, $tenantId: String!) {
+    projectEmails(projectId: $projectId, tenantId: $tenantId) {
+      id
+      projectId
+      taskId
+      senderId
+      toEmails
+      subject
+      body
+      sentAt
+    }
+  }
+`
+
+export const SEND_PROJECT_EMAIL = gql`
+  mutation SendProjectEmail($input: SendProjectEmailInput!) {
+    sendProjectEmail(input: $input) {
+      id
+      projectId
+      taskId
+      senderId
+      toEmails
+      subject
+      body
+      sentAt
+    }
   }
 `
