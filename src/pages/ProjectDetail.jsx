@@ -12,14 +12,17 @@ import {
   CREATE_TASK,
   UPDATE_TASK,
   DELETE_TASK,
+  GET_OFFERS_BY_PROJECT,
 } from '../api/projects'
-import { downloadPdf } from '../api/estimate'
+import { downloadPdf, requestProjectPricing } from '../api/estimate'
 import {
+  GET_TENANT_TRAINING,
   GET_PROJECT_TRAINING,
   CREATE_PROJECT_TRAINING,
   UPDATE_TRAINING,
   DELETE_TRAINING,
 } from '../api/training'
+import { GET_TENANT_SELECTED_PRETRAIN } from '../api/pretrain'
 import Modal from '../components/ui/Modal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
@@ -35,6 +38,18 @@ const inputClass =
 function formatDate(d) {
   if (!d) return null
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function formatCurrency(n) {
+  if (n == null || Number.isNaN(n)) return '—'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n)
+}
+
+function offerAmount(offer) {
+  if (offer.total != null && !Number.isNaN(offer.total)) return offer.total
+  const q = offer.quantity ?? 0
+  const c = offer.unitCost ?? 0
+  return q * c
 }
 
 // ─── Project edit form ────────────────────────────────────────────────────────
@@ -124,7 +139,7 @@ function TaskForm({ initial, onSubmit, loading, error }) {
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
-        <textarea name="description" value={form.description} onChange={handleChange} rows={3} placeholder="Brief description…" className={`${inputClass} resize-none`} />
+        <textarea name="description" value={form.description} onChange={handleChange} rows={3} placeholder="Short summary of the task name" className={`${inputClass} resize-none`} />
       </div>
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
@@ -185,6 +200,9 @@ export default function ProjectDetail() {
   const [trainingModal, setTrainingModal] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [pricingLoading, setPricingLoading] = useState(false)
+  const [pricingResult, setPricingResult] = useState(null)
+  const [pricingModal, setPricingModal] = useState(false)
 
   const [mutationError, setMutationError] = useState(null)
 
@@ -221,6 +239,30 @@ export default function ProjectDetail() {
     variables: { tenantId, projectId, page: { limit: PAGE_SIZE, offset: trainingOffset } },
     skip: !tenantId || activeTab !== 'training',
   })
+
+  const { data: offersByProjectData, refetch: refetchOffers } = useQuery(GET_OFFERS_BY_PROJECT, {
+    variables: { tenantId, projectId },
+    skip: !tenantId || !projectId,
+  })
+
+  // Check if training data is configured (required for Request Pricing)
+  const { data: tenantTrainingCheck } = useQuery(GET_TENANT_TRAINING, {
+    variables: { tenantId, page: { limit: 1, offset: 0 } },
+    skip: !tenantId,
+  })
+  const { data: tenantPretrainCheck } = useQuery(GET_TENANT_SELECTED_PRETRAIN, {
+    variables: { tenantId },
+    skip: !tenantId,
+  })
+  const { data: projectTrainingCheck } = useQuery(GET_PROJECT_TRAINING, {
+    variables: { tenantId, projectId, page: { limit: 1, offset: 0 } },
+    skip: !tenantId || !projectId,
+  })
+
+  const hasTenantTraining = (tenantTrainingCheck?.tenantTrainingData?.total ?? 0) > 0
+  const hasTenantCatalog = (tenantPretrainCheck?.tenantSelectedPretrainData?.length ?? 0) > 0
+  const hasProjectTraining = (projectTrainingCheck?.projectTrainingData?.total ?? 0) > 0
+  const hasTrainingData = hasTenantTraining || hasTenantCatalog || hasProjectTraining
 
   const [updateProject, { loading: updatingProject }] = useMutation(UPDATE_PROJECT, {
     onCompleted: () => { setProjectModal(false); refetchProject() },
@@ -265,6 +307,33 @@ export default function ProjectDetail() {
   const project = projectData?.project
   const displayStatus = statusPollData?.project?.status ?? project?.status
   const sourcePdfUploadId = statusPollData?.project?.sourcePdfUploadId ?? project?.sourcePdfUploadId
+
+  const handleRequestPricing = async () => {
+    if (!tenantId || !projectId) return
+    setPricingLoading(true)
+    setMutationError(null)
+    setPricingResult(null)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+      const result = await requestProjectPricing(projectId, tenantId, { token })
+      setPricingResult(result)
+      setPricingModal(true)
+      refetchProject()
+      refetchTasks()
+      refetchOffers()
+    } catch (err) {
+      const msg = err.message || ''
+      if (msg.toLowerCase().includes('training data')) {
+        setMutationError(
+          'Configure tenant or project training data first. Add custom data or AI Catalog selections in AI Training, or add project-specific training in the AI Training Data tab below.'
+        )
+      } else {
+        setMutationError(msg)
+      }
+    } finally {
+      setPricingLoading(false)
+    }
+  }
 
   const handleDownloadSourcePdf = async () => {
     if (!sourcePdfUploadId || !tenantId) return
@@ -311,6 +380,18 @@ export default function ProjectDetail() {
     ? sortedTasks.slice(taskOffset, taskOffset + PAGE_SIZE)
     : sortedTasks
   const trainings = trainingData?.projectTrainingData?.items ?? []
+
+  // Compute task totals and project total from offers
+  const offersByProject = offersByProjectData?.offersByProject ?? []
+  const taskTotals = {}
+  let projectTotal = 0
+  for (const offer of offersByProject) {
+    const amt = offerAmount(offer)
+    if (!Number.isNaN(amt)) {
+      taskTotals[offer.taskId] = (taskTotals[offer.taskId] ?? 0) + amt
+      projectTotal += amt
+    }
+  }
   const trainingTotal = trainingData?.projectTrainingData?.total ?? 0
 
   if (projectLoading) {
@@ -332,6 +413,11 @@ export default function ProjectDetail() {
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto">
+      {mutationError && (
+        <div className="mb-6">
+          <Alert message={mutationError} />
+        </div>
+      )}
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-gray-500 mb-6">
         <Link to="/app/projects" className="hover:text-indigo-600 transition-colors">Projects</Link>
@@ -394,7 +480,41 @@ export default function ProjectDetail() {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            <div className="flex flex-col items-end gap-1">
+              {!hasTrainingData && (
+                <p className="text-xs text-amber-700">
+                  Add <Link to="/app/training" className="hover:underline font-medium">tenant training</Link>
+                  {' or '}
+                  <button type="button" onClick={() => setActiveTab('training')} className="hover:underline font-medium">
+                    project training
+                  </button>
+                  {' to enable pricing'}
+                </p>
+              )}
+              <button
+                onClick={handleRequestPricing}
+                disabled={pricingLoading || !hasTrainingData}
+                title={!hasTrainingData ? 'Configure tenant or project training data before requesting pricing.' : undefined}
+                className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-2 rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
+              >
+                {pricingLoading ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+                {pricingLoading ? (
+                  <>
+                    Pricing…
+                    <span className="text-indigo-500/80 font-normal">(may take a few minutes)</span>
+                  </>
+                ) : (
+                  'Request pricing'
+                )}
+              </button>
+            </div>
             <button
               onClick={() => { setMutationError(null); setProjectModal(true) }}
               className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors"
@@ -414,6 +534,14 @@ export default function ProjectDetail() {
               Delete
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Project total panel */}
+      <div className="mb-6 p-4 rounded-2xl border border-gray-100 bg-gradient-to-br from-indigo-50 to-white">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-600">Project total</span>
+          <span className="text-xl font-bold text-gray-900">{formatCurrency(projectTotal)}</span>
         </div>
       </div>
 
@@ -517,6 +645,9 @@ export default function ProjectDetail() {
                         )}
                       </button>
                     </th>
+                    <th className="text-right px-6 py-3">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Task total</span>
+                    </th>
                     <th className="text-left px-6 py-3 hidden md:table-cell">
                       <button
                         onClick={() => {
@@ -547,6 +678,9 @@ export default function ProjectDetail() {
                         {task.description && (
                           <p className="text-xs text-gray-400 mt-0.5 max-w-sm truncate">{task.description}</p>
                         )}
+                      </td>
+                      <td className="px-6 py-4 text-right font-medium text-gray-900">
+                        {formatCurrency(taskTotals[task.id])}
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-400 hidden md:table-cell">
                         {task.createdAt ? formatDate(task.createdAt) : '—'}
@@ -727,6 +861,38 @@ export default function ProjectDetail() {
           else if (deleteTarget.type === 'training') deleteTraining({ variables: { id: deleteTarget.item.id, tenantId } })
         }}
       />
+
+      {/* Pricing result modal */}
+      <Modal
+        open={pricingModal}
+        onClose={() => setPricingModal(false)}
+        title="Pricing complete"
+        maxWidth="max-w-3xl"
+      >
+        {pricingResult && (
+          <div className="space-y-4">
+            {pricingResult.agent_report && (
+              <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 max-h-96 overflow-y-auto">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Agent report</p>
+                <pre className="text-sm text-gray-800 whitespace-pre-wrap font-mono overflow-x-auto">{pricingResult.agent_report}</pre>
+              </div>
+            )}
+            {pricingResult.tool_calls_made != null && (
+              <p className="text-xs text-gray-500">
+                {pricingResult.tool_calls_made} tool call{pricingResult.tool_calls_made !== 1 ? 's' : ''} executed
+              </p>
+            )}
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setPricingModal(false)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

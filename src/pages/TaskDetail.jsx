@@ -6,14 +6,10 @@ import {
   GET_PROJECT,
   GET_TASK,
   UPDATE_TASK,
-  GET_ITEMS,
-  CREATE_ITEM,
-  UPDATE_ITEM,
-  DELETE_ITEM,
-  GET_LABORS,
-  CREATE_LABOR,
-  UPDATE_LABOR,
-  DELETE_LABOR,
+  GET_OFFERS,
+  CREATE_OFFER,
+  UPDATE_OFFER,
+  DELETE_OFFER,
 } from '../api/projects'
 import Modal from '../components/ui/Modal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -24,32 +20,38 @@ import Alert from '../components/ui/Alert'
 const inputClass =
   'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition'
 
+const UOM_OPTIONS = ['Each', 'kg', 'Hour', 'Day', 'Week', 'Month', 'Lot', 'LF', 'SF', 'CY']
+
 function formatCurrency(v) {
   if (v == null) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v)
 }
 
-// ─── Item form ────────────────────────────────────────────────────────────────
-function ItemForm({ initial, onSubmit, loading, error }) {
+// ─── Offer form ───────────────────────────────────────────────────────────────
+function OfferForm({ initial, onSubmit, loading, error }) {
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
+    uom: initial?.uom ?? '',
     quantity: initial?.quantity ?? '',
-    cost: initial?.cost ?? '',
+    unitCost: initial?.unitCost ?? '',
+    duration: initial?.duration ?? '',
   })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
 
-  const qty = form.quantity !== '' ? parseInt(form.quantity, 10) : null
-  const unitCost = form.cost !== '' ? parseFloat(form.cost) : null
-  const previewTotal = qty != null && unitCost != null ? qty * unitCost : null
+  const qty = form.quantity !== '' ? parseFloat(form.quantity) : null
+  const cost = form.unitCost !== '' ? parseFloat(form.unitCost) : null
+  const previewTotal = qty != null && cost != null ? qty * cost : null
 
   const handleSubmit = (e) => {
     e.preventDefault()
     onSubmit({
       name: form.name.trim(),
       description: form.description.trim() || null,
-      quantity: form.quantity !== '' ? parseInt(form.quantity, 10) : null,
-      cost: form.cost !== '' ? parseFloat(form.cost) : null,
+      uom: form.uom.trim() || null,
+      quantity: form.quantity !== '' ? parseFloat(form.quantity) : null,
+      unitCost: form.unitCost !== '' ? parseFloat(form.unitCost) : null,
+      duration: form.duration.trim() || null,
     })
   }
   return (
@@ -57,83 +59,87 @@ function ItemForm({ initial, onSubmit, loading, error }) {
       <Alert message={error} />
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Name *</label>
-        <input name="name" required value={form.name} onChange={handleChange} placeholder="Item name" className={inputClass} />
+        <input name="name" required value={form.name} onChange={handleChange} placeholder="e.g. Industrial Drill or Consulting" className={inputClass} />
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
-        <textarea name="description" value={form.description} onChange={handleChange} rows={2} placeholder="Brief description…" className={`${inputClass} resize-none`} />
+        <textarea name="description" value={form.description} onChange={handleChange} rows={5} placeholder="Detailed specs or scope of work…" className={`${inputClass} resize-y min-h-[100px]`} />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Unit of Measure</label>
+        <input name="uom" list="uom-list" value={form.uom} onChange={handleChange} placeholder="e.g. Each, kg, Hour, Day" className={inputClass} />
+        <datalist id="uom-list">
+          {UOM_OPTIONS.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">Quantity</label>
-          <input name="quantity" type="number" step="1" min="0" value={form.quantity} onChange={handleChange} placeholder="1" className={inputClass} />
+          <input name="quantity" type="number" step="0.01" min="0" value={form.quantity} onChange={handleChange} placeholder="1" className={inputClass} />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">Unit cost ($)</label>
-          <input name="cost" type="number" step="0.01" min="0" value={form.cost} onChange={handleChange} placeholder="0.00" className={inputClass} />
+          <input name="unitCost" type="number" step="0.01" min="0" value={form.unitCost} onChange={handleChange} placeholder="0.00" className={inputClass} />
         </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration (optional)</label>
+        <input name="duration" value={form.duration} onChange={handleChange} placeholder="e.g. 3 Months or 2 Weeks" className={inputClass} />
       </div>
       {previewTotal != null && (
         <div className="flex items-center justify-between bg-indigo-50 rounded-xl px-4 py-2.5 text-sm">
           <span className="text-indigo-600 font-medium">Line total</span>
-          <span className="font-bold text-indigo-700">
-            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(previewTotal)}
-          </span>
+          <span className="font-bold text-indigo-700">{formatCurrency(previewTotal)}</span>
         </div>
       )}
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
           {loading && <Spinner size="sm" />}
-          {initial ? 'Save changes' : 'Add item'}
+          {initial ? 'Save changes' : 'Add offer'}
         </button>
       </div>
     </form>
   )
 }
 
-// ─── Labor form ───────────────────────────────────────────────────────────────
-function LaborForm({ initial, onSubmit, loading, error }) {
-  const [form, setForm] = useState({
-    name: initial?.name ?? '',
-    description: initial?.description ?? '',
-    time: initial?.time ?? '',
-    cost: initial?.cost ?? '',
-  })
-  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+// ─── Description edit form (offer) ───────────────────────────────────────────
+function DescriptionEditForm({ offer, onSubmit, onClose, loading, error }) {
+  const [value, setValue] = useState(offer?.description ?? '')
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSubmit({
-      name: form.name.trim(),
-      description: form.description.trim() || null,
-      time: form.time !== '' ? parseFloat(form.time) : null,
-      cost: form.cost !== '' ? parseFloat(form.cost) : null,
-    })
+    onSubmit(value.trim() || null)
   }
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Alert message={error} />
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Name *</label>
-        <input name="name" required value={form.name} onChange={handleChange} placeholder="Labor entry name" className={inputClass} />
-      </div>
-      <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
-        <textarea name="description" value={form.description} onChange={handleChange} rows={2} placeholder="Brief description…" className={`${inputClass} resize-none`} />
+        <textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          rows={12}
+          placeholder="Detailed specs or scope of work…"
+          className={`${inputClass} resize-y min-h-[200px]`}
+          autoFocus
+        />
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Time (hrs)</label>
-          <input name="time" type="number" step="0.25" min="0" value={form.time} onChange={handleChange} placeholder="0.00" className={inputClass} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Cost ($)</label>
-          <input name="cost" type="number" step="0.01" min="0" value={form.cost} onChange={handleChange} placeholder="0.00" className={inputClass} />
-        </div>
-      </div>
-      <div className="flex justify-end pt-2">
-        <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
+      <div className="flex justify-end gap-3 pt-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={loading}
+          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl disabled:opacity-60"
+        >
           {loading && <Spinner size="sm" />}
-          {initial ? 'Save changes' : 'Add labor'}
+          Save
         </button>
       </div>
     </form>
@@ -157,7 +163,7 @@ function TaskForm({ initial, onSubmit, loading, error }) {
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
-        <textarea name="description" value={form.description} onChange={handleChange} rows={3} placeholder="Brief description…" className={`${inputClass} resize-none`} />
+        <textarea name="description" value={form.description} onChange={handleChange} rows={3} placeholder="Short summary of the task name" className={`${inputClass} resize-none`} />
       </div>
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
@@ -232,8 +238,8 @@ export default function TaskDetail() {
   const tenantId = user?.tenantId
 
   const [taskModal, setTaskModal] = useState(false)
-  const [itemModal, setItemModal] = useState(null)
-  const [laborModal, setLaborModal] = useState(null)
+  const [offerModal, setOfferModal] = useState(null)
+  const [descriptionEditTarget, setDescriptionEditTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [mutationError, setMutationError] = useState(null)
 
@@ -242,11 +248,7 @@ export default function TaskDetail() {
     variables: { id: taskId, projectId, tenantId },
     skip: !tenantId,
   })
-  const { data: itemsData, loading: itemsLoading, refetch: refetchItems } = useQuery(GET_ITEMS, {
-    variables: { projectId, taskId, tenantId, page: { limit: 100, offset: 0 } },
-    skip: !tenantId,
-  })
-  const { data: laborsData, loading: laborsLoading, refetch: refetchLabors } = useQuery(GET_LABORS, {
+  const { data: offersData, loading: offersLoading, refetch: refetchOffers } = useQuery(GET_OFFERS, {
     variables: { projectId, taskId, tenantId, page: { limit: 100, offset: 0 } },
     skip: !tenantId,
   })
@@ -256,42 +258,24 @@ export default function TaskDetail() {
     onError: (e) => setMutationError(e.message),
   })
 
-  const [createItem, { loading: creatingItem }] = useMutation(CREATE_ITEM, {
-    onCompleted: () => { setItemModal(null); refetchItems() },
+  const [createOffer, { loading: creatingOffer }] = useMutation(CREATE_OFFER, {
+    onCompleted: () => { setOfferModal(null); refetchOffers() },
     onError: (e) => setMutationError(e.message),
   })
-  const [updateItem, { loading: updatingItem }] = useMutation(UPDATE_ITEM, {
-    onCompleted: () => { setItemModal(null); refetchItems() },
+  const [updateOffer, { loading: updatingOffer }] = useMutation(UPDATE_OFFER, {
+    onCompleted: () => { setOfferModal(null); setDescriptionEditTarget(null); refetchOffers() },
     onError: (e) => setMutationError(e.message),
   })
-  const [deleteItem, { loading: deletingItem }] = useMutation(DELETE_ITEM, {
-    onCompleted: () => { setDeleteTarget(null); refetchItems() },
-    onError: (e) => setMutationError(e.message),
-  })
-
-  const [createLabor, { loading: creatingLabor }] = useMutation(CREATE_LABOR, {
-    onCompleted: () => { setLaborModal(null); refetchLabors() },
-    onError: (e) => setMutationError(e.message),
-  })
-  const [updateLabor, { loading: updatingLabor }] = useMutation(UPDATE_LABOR, {
-    onCompleted: () => { setLaborModal(null); refetchLabors() },
-    onError: (e) => setMutationError(e.message),
-  })
-  const [deleteLabor, { loading: deletingLabor }] = useMutation(DELETE_LABOR, {
-    onCompleted: () => { setDeleteTarget(null); refetchLabors() },
+  const [deleteOffer, { loading: deletingOffer }] = useMutation(DELETE_OFFER, {
+    onCompleted: () => { setDeleteTarget(null); refetchOffers() },
     onError: (e) => setMutationError(e.message),
   })
 
   const project = projectData?.project
   const task = taskData?.task
-  const items = itemsData?.items?.items ?? []
-  const labors = laborsData?.labors?.items ?? []
+  const offers = offersData?.offers?.items ?? []
 
-  // Use server-computed total (quantity × unit cost) if available, fall back to cost
-  const totalItemCost = items.reduce((s, i) => s + (i.total ?? i.cost ?? 0), 0)
-  const totalLaborCost = labors.reduce((s, l) => s + (l.cost ?? 0), 0)
-  const totalLaborTime = labors.reduce((s, l) => s + (l.time ?? 0), 0)
-  const grandTotal = totalItemCost + totalLaborCost
+  const grandTotal = offers.reduce((s, o) => s + (o.total ?? 0), 0)
 
   if (taskLoading) {
     return <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>
@@ -333,127 +317,70 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Items */}
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-base font-semibold text-gray-900">
-                Items <span className="text-gray-400 font-normal text-sm ml-1">({items.length})</span>
-              </h2>
-              <button
-                onClick={() => { setMutationError(null); setItemModal({ mode: 'create' }) }}
-                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                Add item
-              </button>
-            </div>
-            {itemsLoading ? (
-              <div className="flex justify-center py-10"><Spinner /></div>
-            ) : (
+      {/* Cost Summary — compact at top */}
+      <div className="bg-white rounded-2xl border border-gray-100 px-6 py-4 mb-6 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-900">Cost Summary</h3>
+        <span className="text-lg font-bold text-indigo-600">{formatCurrency(grandTotal)}</span>
+      </div>
+
+      {/* Offers — full width, takes rest of page */}
+      <div className="flex flex-col min-h-[calc(100vh-18rem)]">
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden flex flex-col flex-1 min-h-0">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+            <h2 className="text-base font-semibold text-gray-900">
+              Offers <span className="text-gray-400 font-normal text-sm ml-1">({offers.length})</span>
+            </h2>
+            <button
+              onClick={() => { setMutationError(null); setOfferModal({ mode: 'create' }) }}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Add offer
+            </button>
+          </div>
+          {offersLoading ? (
+            <div className="flex justify-center py-10 flex-1"><Spinner /></div>
+          ) : (
+            <div className="flex-1 min-h-0 overflow-auto">
               <SectionTable
-                headers={['Name', 'Description', 'Qty', 'Unit Cost', 'Total']}
-                rows={items.map((item) => ({
-                  id: item.id,
-                  original: item,
+                headers={['Name', 'Description', 'UoM', 'Qty', 'Unit Cost', 'Duration', 'Total']}
+                rows={offers.map((offer) => ({
+                  id: offer.id,
+                  original: offer,
                   cells: [
-                    <span className="font-medium text-gray-900">{item.name}</span>,
-                    <span className="text-gray-500 text-xs">{item.description || '—'}</span>,
-                    <span className="text-gray-700">{item.quantity ?? '—'}</span>,
-                    <span className="text-gray-500 text-xs">{formatCurrency(item.cost)}</span>,
-                    <span className="font-medium text-gray-700">{formatCurrency(item.total)}</span>,
+                    <span className="font-medium text-gray-900">{offer.name}</span>,
+                    <button
+                      type="button"
+                      onClick={() => { setMutationError(null); setDescriptionEditTarget(offer) }}
+                      className="text-left w-full text-gray-500 text-sm max-w-56 truncate block hover:text-indigo-600 hover:bg-indigo-50/70 -m-2 p-2 rounded-lg transition-colors"
+                      title={offer.description ? `${offer.description} — Click to view and edit` : 'Click to add description'}
+                    >
+                      {offer.description || '—'}
+                    </button>,
+                    <span className="text-gray-700">{offer.uom || '—'}</span>,
+                    <span className="text-gray-700">{offer.quantity ?? '—'}</span>,
+                    <span className="text-gray-500 text-xs">{formatCurrency(offer.unitCost)}</span>,
+                    <span className="text-gray-500 text-xs">{offer.duration || '—'}</span>,
+                    <span className="font-medium text-gray-700">{formatCurrency(offer.total)}</span>,
                   ],
                 }))}
-                onEdit={(item) => { setMutationError(null); setItemModal({ mode: 'edit', item }) }}
-                onDelete={(item) => setDeleteTarget({ type: 'item', item })}
-                emptyTitle="No items yet"
-                emptyDesc="Add materials, tools, or any other cost items for this task."
-                onAdd={() => { setMutationError(null); setItemModal({ mode: 'create' }) }}
+                onEdit={(offer) => { setMutationError(null); setOfferModal({ mode: 'edit', offer }) }}
+                onDelete={(offer) => setDeleteTarget({ type: 'offer', item: offer })}
+                emptyTitle="No offers yet"
+                emptyDesc="Add materials, labor, or services for this task."
+                onAdd={() => { setMutationError(null); setOfferModal({ mode: 'create' }) }}
               />
-            )}
-            {items.length > 0 && (
-              <div className="px-6 py-3 border-t border-gray-100 bg-gray-50/50 flex justify-end">
-                <span className="text-sm font-semibold text-gray-700">
-                  Items total: {formatCurrency(totalItemCost)}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Labor */}
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-base font-semibold text-gray-900">
-                Labor <span className="text-gray-400 font-normal text-sm ml-1">({labors.length})</span>
-              </h2>
-              <button
-                onClick={() => { setMutationError(null); setLaborModal({ mode: 'create' }) }}
-                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-                Add labor
-              </button>
             </div>
-            {laborsLoading ? (
-              <div className="flex justify-center py-10"><Spinner /></div>
-            ) : (
-              <SectionTable
-                headers={['Name', 'Description', 'Time (hrs)', 'Cost']}
-                rows={labors.map((labor) => ({
-                  id: labor.id,
-                  original: labor,
-                  cells: [
-                    <span className="font-medium text-gray-900">{labor.name}</span>,
-                    <span className="text-gray-500 text-xs">{labor.description || '—'}</span>,
-                    <span className="text-gray-700">{labor.time != null ? `${labor.time}h` : '—'}</span>,
-                    <span className="font-medium text-gray-700">{formatCurrency(labor.cost)}</span>,
-                  ],
-                }))}
-                onEdit={(labor) => { setMutationError(null); setLaborModal({ mode: 'edit', labor }) }}
-                onDelete={(labor) => setDeleteTarget({ type: 'labor', item: labor })}
-                emptyTitle="No labor entries yet"
-                emptyDesc="Track time and labor costs associated with this task."
-                onAdd={() => { setMutationError(null); setLaborModal({ mode: 'create' }) }}
-              />
-            )}
-            {labors.length > 0 && (
-              <div className="px-6 py-3 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-6">
-                <span className="text-sm text-gray-500">Total time: {totalLaborTime.toFixed(2)}h</span>
-                <span className="text-sm font-semibold text-gray-700">Labor total: {formatCurrency(totalLaborCost)}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Summary sidebar */}
-        <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Cost Summary</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Items</span>
-                <span className="font-medium text-gray-800">{formatCurrency(totalItemCost)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Labor</span>
-                <span className="font-medium text-gray-800">{formatCurrency(totalLaborCost)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Total time</span>
-                <span className="font-medium text-gray-800">{totalLaborTime.toFixed(2)}h</span>
-              </div>
-              <div className="border-t border-gray-100 pt-3 flex justify-between">
-                <span className="text-sm font-semibold text-gray-900">Grand total</span>
-                <span className="text-sm font-bold text-indigo-600">{formatCurrency(grandTotal)}</span>
-              </div>
+          )}
+          {offers.length > 0 && (
+            <div className="px-6 py-3 border-t border-gray-100 bg-gray-50/50 flex justify-end flex-shrink-0">
+              <span className="text-sm font-semibold text-gray-700">
+                Total: {formatCurrency(grandTotal)}
+              </span>
             </div>
-          </div>
-
+          )}
         </div>
       </div>
 
@@ -469,33 +396,52 @@ export default function TaskDetail() {
         )}
       </Modal>
 
-      {/* Item modals */}
-      <Modal open={!!itemModal} onClose={() => setItemModal(null)} title={itemModal?.mode === 'create' ? 'Add item' : 'Edit item'}>
-        {itemModal && (
-          <ItemForm
-            initial={itemModal.item}
+      {/* Offer modals */}
+      <Modal open={!!offerModal} onClose={() => setOfferModal(null)} title={offerModal?.mode === 'create' ? 'Add offer' : 'Edit offer'}>
+        {offerModal && (
+          <OfferForm
+            initial={offerModal.offer}
             onSubmit={
-              itemModal.mode === 'create'
-                ? (input) => createItem({ variables: { input: { ...input, projectId, taskId, tenantId } } })
-                : (input) => updateItem({ variables: { id: itemModal.item.id, projectId, taskId, tenantId, input } })
+              offerModal.mode === 'create'
+                ? (input) => createOffer({ variables: { input: { ...input, projectId, taskId, tenantId } } })
+                : (input) => updateOffer({ variables: { id: offerModal.offer.id, projectId, taskId, tenantId, input } })
             }
-            loading={creatingItem || updatingItem}
+            loading={creatingOffer || updatingOffer}
             error={mutationError}
           />
         )}
       </Modal>
 
-      {/* Labor modals */}
-      <Modal open={!!laborModal} onClose={() => setLaborModal(null)} title={laborModal?.mode === 'create' ? 'Add labor' : 'Edit labor'}>
-        {laborModal && (
-          <LaborForm
-            initial={laborModal.labor}
-            onSubmit={
-              laborModal.mode === 'create'
-                ? (input) => createLabor({ variables: { input: { ...input, projectId, taskId, tenantId } } })
-                : (input) => updateLabor({ variables: { id: laborModal.labor.id, projectId, taskId, tenantId, input } })
+      {/* Description edit modal — dedicated surface for viewing/editing offer description */}
+      <Modal
+        open={!!descriptionEditTarget}
+        onClose={() => { setDescriptionEditTarget(null); setMutationError(null) }}
+        title={`Edit description — ${descriptionEditTarget?.name ?? 'Offer'}`}
+        maxWidth="max-w-2xl"
+      >
+        {descriptionEditTarget && (
+          <DescriptionEditForm
+            offer={descriptionEditTarget}
+            onSubmit={(description) =>
+              updateOffer({
+                variables: {
+                  id: descriptionEditTarget.id,
+                  projectId,
+                  taskId,
+                  tenantId,
+                  input: {
+                    name: descriptionEditTarget.name,
+                    description,
+                    uom: descriptionEditTarget.uom,
+                    quantity: descriptionEditTarget.quantity,
+                    unitCost: descriptionEditTarget.unitCost,
+                    duration: descriptionEditTarget.duration,
+                  },
+                },
+              })
             }
-            loading={creatingLabor || updatingLabor}
+            onClose={() => { setDescriptionEditTarget(null); setMutationError(null) }}
+            loading={updatingOffer}
             error={mutationError}
           />
         )}
@@ -505,12 +451,11 @@ export default function TaskDetail() {
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        loading={deletingItem || deletingLabor}
-        title={`Delete ${deleteTarget?.type}`}
+        loading={deletingOffer}
+        title="Delete offer"
         message={`Are you sure you want to delete "${deleteTarget?.item?.name}"?`}
         onConfirm={() => {
-          if (deleteTarget.type === 'item') deleteItem({ variables: { id: deleteTarget.item.id, projectId, taskId, tenantId } })
-          else if (deleteTarget.type === 'labor') deleteLabor({ variables: { id: deleteTarget.item.id, projectId, taskId, tenantId } })
+          if (deleteTarget?.type === 'offer') deleteOffer({ variables: { id: deleteTarget.item.id, projectId, taskId, tenantId } })
         }}
       />
     </div>

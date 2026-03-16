@@ -106,6 +106,46 @@ export async function downloadPdf(uploadId, tenantId, { token } = {}) {
 }
 
 /**
+ * Request agentic project pricing. Triggers the Tenant-Adaptive agent to enrich
+ * the project with pricing using tenant and project training data.
+ * POST /api/v1/estimate/price-project
+ */
+const PRICING_REQUEST_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes — agent may take several minutes
+
+export async function requestProjectPricing(projectId, tenantId, { token } = {}) {
+  const params = new URLSearchParams()
+  if (tenantId) params.set('tenant_id', tenantId)
+  if (projectId) params.set('project_id', projectId)
+  const url = `${BASE}/v1/estimate/price-project?${params.toString()}`
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), PRICING_REQUEST_TIMEOUT_MS)
+
+  let res
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error('Request timed out. The agent may still be processing — try refreshing the project.')
+    }
+    throw err
+  } finally {
+    clearTimeout(timeoutId)
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.detail ?? data.message ?? `Pricing request failed (${res.status})`)
+  }
+  return data
+}
+
+/**
  * Delete a PDF upload record by ID.
  * DELETE /api/v1/estimate/uploads/:id
  */

@@ -157,17 +157,33 @@ export const DELETE_TASK = gql`
   }
 `
 
-// ─── Items ───────────────────────────────────────────────────────────────────
+// ─── Project totals (offers by project) ──────────────────────────────────────
 
-export const GET_ITEMS = gql`
-  query GetItems($projectId: String!, $taskId: String!, $tenantId: String!, $page: PageInput) {
-    items(projectId: $projectId, taskId: $taskId, tenantId: $tenantId, page: $page) {
+export const GET_OFFERS_BY_PROJECT = gql`
+  query GetOffersByProject($tenantId: String!, $projectId: String!) {
+    offersByProject(tenantId: $tenantId, projectId: $projectId) {
+      id
+      taskId
+      quantity
+      unitCost
+      total
+    }
+  }
+`
+
+// ─── Offers ──────────────────────────────────────────────────────────────────
+
+export const GET_OFFERS = gql`
+  query GetOffers($projectId: String!, $taskId: String!, $tenantId: String!, $page: PageInput) {
+    offers(projectId: $projectId, taskId: $taskId, tenantId: $tenantId, page: $page) {
       items {
         id
         name
         description
+        uom
         quantity
-        cost
+        unitCost
+        duration
         total
         projectId
         taskId
@@ -183,14 +199,16 @@ export const GET_ITEMS = gql`
   }
 `
 
-export const CREATE_ITEM = gql`
-  mutation CreateItem($input: CreateItemInput!) {
-    createItem(input: $input) {
+export const CREATE_OFFER = gql`
+  mutation CreateOffer($input: CreateOfferInput!) {
+    createOffer(input: $input) {
       id
       name
       description
+      uom
       quantity
-      cost
+      unitCost
+      duration
       total
       projectId
       taskId
@@ -200,82 +218,24 @@ export const CREATE_ITEM = gql`
   }
 `
 
-export const UPDATE_ITEM = gql`
-  mutation UpdateItem($id: ID!, $projectId: String!, $taskId: String!, $tenantId: String!, $input: UpdateItemInput!) {
-    updateItem(id: $id, projectId: $projectId, taskId: $taskId, tenantId: $tenantId, input: $input) {
+export const UPDATE_OFFER = gql`
+  mutation UpdateOffer($id: ID!, $projectId: String!, $taskId: String!, $tenantId: String!, $input: UpdateOfferInput!) {
+    updateOffer(id: $id, projectId: $projectId, taskId: $taskId, tenantId: $tenantId, input: $input) {
       id
       name
       description
+      uom
       quantity
-      cost
+      unitCost
+      duration
       total
       updatedAt
     }
   }
 `
 
-export const DELETE_ITEM = gql`
-  mutation DeleteItem($id: ID!, $projectId: String!, $taskId: String!, $tenantId: String!) {
-    deleteItem(id: $id, projectId: $projectId, taskId: $taskId, tenantId: $tenantId)
-  }
-`
-
-// ─── Labor ───────────────────────────────────────────────────────────────────
-
-export const GET_LABORS = gql`
-  query GetLabors($projectId: String!, $taskId: String!, $tenantId: String!, $page: PageInput) {
-    labors(projectId: $projectId, taskId: $taskId, tenantId: $tenantId, page: $page) {
-      items {
-        id
-        name
-        description
-        time
-        cost
-        projectId
-        taskId
-        tenantId
-        createdAt
-        updatedAt
-      }
-      total
-      hasNext
-      limit
-      offset
-    }
-  }
-`
-
-export const CREATE_LABOR = gql`
-  mutation CreateLabor($input: CreateLaborInput!) {
-    createLabor(input: $input) {
-      id
-      name
-      description
-      time
-      cost
-      projectId
-      taskId
-      tenantId
-      createdAt
-    }
-  }
-`
-
-export const UPDATE_LABOR = gql`
-  mutation UpdateLabor($id: ID!, $projectId: String!, $taskId: String!, $tenantId: String!, $input: UpdateLaborInput!) {
-    updateLabor(id: $id, projectId: $projectId, taskId: $taskId, tenantId: $tenantId, input: $input) {
-      id
-      name
-      description
-      time
-      cost
-      updatedAt
-    }
-  }
-`
-
-export const DELETE_LABOR = gql`
-  mutation DeleteLabor($id: ID!, $projectId: String!, $taskId: String!, $tenantId: String!) {
-    deleteLabor(id: $id, projectId: $projectId, taskId: $taskId, tenantId: $tenantId)
+export const DELETE_OFFER = gql`
+  mutation DeleteOffer($id: ID!, $projectId: String!, $taskId: String!, $tenantId: String!) {
+    deleteOffer(id: $id, projectId: $projectId, taskId: $taskId, tenantId: $tenantId)
   }
 `
