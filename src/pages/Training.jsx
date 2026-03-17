@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation } from '@apollo/client/react'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -19,11 +20,9 @@ import EmptyState from '../components/ui/EmptyState'
 import Spinner from '../components/ui/Spinner'
 import Pagination from '../components/ui/Pagination'
 import Alert from '../components/ui/Alert'
+import TrainingDataForm from '../components/TrainingDataForm'
 
 const PAGE_SIZE = 20
-
-const inputClass =
-  'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition'
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -32,94 +31,48 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-// ─── Custom training data form ────────────────────────────────────────────────
+// ─── Hierarchy explanation card ───────────────────────────────────────────────
 
-function TrainingForm({ initial, onSubmit, loading, error }) {
-  const initialEntries = initial?.entries?.length ? initial.entries : [{ key: '', value: '' }]
-  const [form, setForm] = useState({
-    description: initial?.description ?? '',
-    entries: initialEntries.map((e) => ({ key: e.key ?? '', value: e.value ?? '' })),
-  })
-
-  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
-  const handleEntryChange = (idx, field, val) => {
-    setForm((p) => ({
-      ...p,
-      entries: p.entries.map((e, i) => (i === idx ? { ...e, [field]: val } : e)),
-    }))
-  }
-  const addEntry = () => setForm((p) => ({ ...p, entries: [...p.entries, { key: '', value: '' }] }))
-  const removeEntry = (idx) =>
-    setForm((p) => ({ ...p, entries: p.entries.filter((_, i) => i !== idx).length ? p.entries.filter((_, i) => i !== idx) : [{ key: '', value: '' }] }))
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    const entries = form.entries.filter((x) => (x.key ?? '').trim()).map((x) => ({ key: x.key.trim(), value: (x.value ?? '').trim() }))
-    if (!entries.length) return
-    onSubmit({ description: form.description.trim() || null, entries })
-  }
-
+function HierarchyCard() {
+  const [expanded, setExpanded] = useState(false)
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Alert message={error} />
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Label / description</label>
-        <input
-          name="description"
-          value={form.description}
-          onChange={handleChange}
-          placeholder="What is this training data about?"
-          className={inputClass}
-        />
-      </div>
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="block text-sm font-medium text-gray-700">Key-value pairs *</label>
-          <button type="button" onClick={addEntry} className="text-xs font-medium text-indigo-600 hover:text-indigo-500">
-            + Add pair
+    <div className="mb-8 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">How pricing data works</h3>
+          <ol className="text-sm text-gray-700 space-y-1 list-decimal list-inside">
+            <li>
+              <strong>Project-level</strong> (highest) — Overrides only the keys it defines for that project
+            </li>
+            <li>
+              <strong>Global</strong> (this page) — Base for all projects in your organization
+            </li>
+            <li>
+              <strong>AI Catalog</strong> (optional) — Fallback when nothing else applies
+            </li>
+          </ol>
+          {expanded && (
+            <div className="mt-3 p-3 rounded-xl bg-white/80 border border-indigo-100">
+              <p className="text-xs text-gray-600">
+                <strong>Example:</strong> Global has wood=$100, nails=$2. Project adds wood=$150. Result: wood=$150, nails=$2.
+              </p>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="mt-2 text-xs font-medium text-indigo-600 hover:text-indigo-500"
+          >
+            {expanded ? 'Show less' : 'Learn more'}
           </button>
         </div>
-        <div className="space-y-2">
-          {form.entries.map((entry, idx) => (
-            <div key={idx} className="flex gap-2 items-center">
-              <input
-                value={entry.key}
-                onChange={(e) => handleEntryChange(idx, 'key', e.target.value)}
-                placeholder="Key"
-                className={`${inputClass} flex-1`}
-              />
-              <input
-                value={entry.value}
-                onChange={(e) => handleEntryChange(idx, 'value', e.target.value)}
-                placeholder="Value"
-                className={`${inputClass} flex-1`}
-              />
-              <button
-                type="button"
-                onClick={() => removeEntry(idx)}
-                className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
-                title="Remove"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
-          ))}
+        <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
+          <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+          </svg>
         </div>
-        <p className="text-xs text-gray-400 mt-1">At least one key-value pair required. The agent uses these for pricing context.</p>
       </div>
-      <div className="flex justify-end pt-2">
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60"
-        >
-          {loading && <Spinner size="sm" />}
-          {initial ? 'Save changes' : 'Add training data'}
-        </button>
-      </div>
-    </form>
+    </div>
   )
 }
 
@@ -163,7 +116,9 @@ function CustomDataTab({ tenantId }) {
   return (
     <>
       <div className="flex items-center justify-between mb-6">
-        <p className="text-sm text-gray-500">Custom data your organization has uploaded for AI context</p>
+        <p className="text-sm text-gray-500">
+          Global custom data applied to all projects. Project-level data can override specific keys.
+        </p>
         <button
           onClick={() => { setMutationError(null); setModal({ mode: 'create' }) }}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
@@ -197,25 +152,30 @@ function CustomDataTab({ tenantId }) {
           <div className="flex justify-center py-16"><Spinner /></div>
         ) : entries.length === 0 ? (
           <EmptyState
-            title="No training data yet"
+            title={search ? 'No results found' : 'No training data yet'}
             description={
               search
                 ? 'No results matched your search.'
-                : 'Add training data to help AI models better understand your organization and estimate projects accurately.'
+                : 'Set up pricing in 3 steps: (1) Add global custom data here, (2) Optionally add AI Catalog datasets in the next tab, (3) Add project-specific overrides when editing a project.'
             }
             action={
               !search && (
-                <button
-                  onClick={() => { setMutationError(null); setModal({ mode: 'create' }) }}
-                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
-                >
-                  + Add training data
-                </button>
+                <div className="flex flex-col items-center gap-3">
+                  <button
+                    onClick={() => { setMutationError(null); setModal({ mode: 'create' }) }}
+                    className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
+                  >
+                    + Add your first training data
+                  </button>
+                  <Link to="/app/projects" className="text-xs text-gray-500 hover:text-indigo-600">
+                    Go to a project to add project-level data →
+                  </Link>
+                </div>
               )
             }
             icon={
               <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
               </svg>
             }
           />
@@ -288,8 +248,9 @@ function CustomDataTab({ tenantId }) {
         maxWidth="max-w-2xl"
       >
         {modal && (
-          <TrainingForm
+          <TrainingDataForm
             initial={modal.entry}
+            scopeLabel="training data"
             onSubmit={
               modal.mode === 'create'
                 ? (input) => createTraining({ variables: { input: { tenantId, entries: input.entries, description: input.description } } })
@@ -380,6 +341,12 @@ function CatalogTab({ tenantId }) {
   return (
     <div className="space-y-8">
       {actionError && <Alert message={actionError} />}
+
+      <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+        <p className="text-sm text-gray-600">
+          <strong>AI Catalog</strong> provides pre-trained pricing profiles (Economy, Balanced, Whiteglove). Use as a fallback when your custom data doesn&apos;t define a value. Your custom data always overrides catalog values for the same keys.
+        </p>
+      </div>
 
       {/* Active selections */}
       <div>
@@ -567,6 +534,8 @@ export default function Training() {
           Manage the data that guides AI models for project estimation and support
         </p>
       </div>
+
+      <HierarchyCard />
 
       {/* Tab switcher */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit mb-8">

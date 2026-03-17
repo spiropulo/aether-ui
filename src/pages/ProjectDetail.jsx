@@ -34,6 +34,7 @@ import EmptyState from '../components/ui/EmptyState'
 import Spinner from '../components/ui/Spinner'
 import Pagination from '../components/ui/Pagination'
 import Alert from '../components/ui/Alert'
+import TrainingDataForm from '../components/TrainingDataForm'
 
 const PAGE_SIZE = 20
 
@@ -417,67 +418,6 @@ function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
           {loading && <Spinner size="sm" />}
           {initial ? 'Save changes' : 'Create task'}
-        </button>
-      </div>
-    </form>
-  )
-}
-
-// ─── Training data form ───────────────────────────────────────────────────────
-function TrainingForm({ initial, onSubmit, loading, error }) {
-  const initialEntries = initial?.entries?.length ? initial.entries : [{ key: '', value: '' }]
-  const [form, setForm] = useState({
-    description: initial?.description ?? '',
-    entries: initialEntries.map((e) => ({ key: e.key ?? '', value: e.value ?? '' })),
-  })
-  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
-  const handleEntryChange = (idx, field, val) => {
-    setForm((p) => ({
-      ...p,
-      entries: p.entries.map((e, i) => (i === idx ? { ...e, [field]: val } : e)),
-    }))
-  }
-  const addEntry = () => setForm((p) => ({ ...p, entries: [...p.entries, { key: '', value: '' }] }))
-  const removeEntry = (idx) =>
-    setForm((p) => ({ ...p, entries: p.entries.filter((_, i) => i !== idx).length ? p.entries.filter((_, i) => i !== idx) : [{ key: '', value: '' }] }))
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    const entries = form.entries.filter((x) => (x.key ?? '').trim()).map((x) => ({ key: x.key.trim(), value: (x.value ?? '').trim() }))
-    if (!entries.length) return
-    onSubmit({ description: form.description.trim() || null, entries })
-  }
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Alert message={error} />
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Label / description</label>
-        <input name="description" value={form.description} onChange={handleChange} placeholder="What is this training data about?" className={inputClass} />
-      </div>
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="block text-sm font-medium text-gray-700">Key-value pairs *</label>
-          <button type="button" onClick={addEntry} className="text-xs font-medium text-indigo-600 hover:text-indigo-500">
-            + Add pair
-          </button>
-        </div>
-        <div className="space-y-2">
-          {form.entries.map((entry, idx) => (
-            <div key={idx} className="flex gap-2 items-center">
-              <input value={entry.key} onChange={(e) => handleEntryChange(idx, 'key', e.target.value)} placeholder="Key" className={`${inputClass} flex-1`} />
-              <input value={entry.value} onChange={(e) => handleEntryChange(idx, 'value', e.target.value)} placeholder="Value" className={`${inputClass} flex-1`} />
-              <button type="button" onClick={() => removeEntry(idx)} className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50" title="Remove">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="flex justify-end pt-2">
-        <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
-          {loading && <Spinner size="sm" />}
-          {initial ? 'Save changes' : 'Add training data'}
         </button>
       </div>
     </form>
@@ -944,20 +884,19 @@ export default function ProjectDetail() {
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
             <div className="flex flex-col items-end gap-1">
               {(!hasTrainingData || !hasAddress) && !pricingInProgress && (
-                <p className="text-xs text-amber-700">
-                  {!hasTrainingData && (
-                    <>Add <Link to="/app/training" className="hover:underline font-medium">tenant training</Link>
-                    {' or '}
-                    <button type="button" onClick={() => setActiveTab('training')} className="hover:underline font-medium">
-                      project training
-                    </button>
-                    {' to enable pricing'}
-                    {!hasAddress && ' • '}
-                    </>)}
-                  {!hasAddress && (
-                    <>Set project <button type="button" onClick={() => { setMutationError(null); setProjectModal(true) }} className="hover:underline font-medium">address</button> before pricing</>
-                  )}
-                </p>
+                <div className="text-xs text-amber-700 space-y-0.5 text-right">
+                  <p className="font-medium">Pricing checklist:</p>
+                  <ul className="list-none">
+                    {!hasAddress && (
+                      <li>☐ Set project <button type="button" onClick={() => { setMutationError(null); setProjectModal(true) }} className="hover:underline font-medium">address</button></li>
+                    )}
+                    {hasAddress && <li>☑ Address set</li>}
+                    {!hasTrainingData && (
+                      <li>☐ Add <Link to="/app/training" className="hover:underline font-medium">global training</Link> or <button type="button" onClick={() => setActiveTab('training')} className="hover:underline font-medium">project training</button></li>
+                    )}
+                    {hasTrainingData && <li>☑ Training data configured</li>}
+                  </ul>
+                </div>
               )}
               <button
                 onClick={handleRequestPricing}
@@ -1345,16 +1284,26 @@ export default function ProjectDetail() {
             <div className="flex justify-center py-12"><Spinner /></div>
           ) : trainings.length === 0 ? (
             <EmptyState
-              title="No training data"
-              description="Add project-specific training data to improve AI estimates for this project."
+              title="No project-specific data"
+              description="This project uses your global training data from AI Training. Add project data here to override specific values (e.g. higher wood cost for this project only)."
               action={
                 !pricingInProgress && (
-                  <button
-                    onClick={() => { setMutationError(null); setTrainingModal({ mode: 'create' }) }}
-                    className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
-                  >
-                    + Add training data
-                  </button>
+                  <div className="flex flex-col items-center gap-3">
+                    <button
+                      onClick={() => { setMutationError(null); setTrainingModal({ mode: 'create' }) }}
+                      className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
+                    >
+                      + Add project data
+                    </button>
+                    {!hasTenantTraining && !hasTenantCatalog && (
+                      <Link
+                        to="/app/training"
+                        className="text-xs text-gray-500 hover:text-indigo-600"
+                      >
+                        Set up global data first →
+                      </Link>
+                    )}
+                  </div>
                 )
               }
               icon={
@@ -1457,8 +1406,9 @@ export default function ProjectDetail() {
         maxWidth="max-w-2xl"
       >
         {trainingModal && (
-          <TrainingForm
+          <TrainingDataForm
             initial={trainingModal.entry}
+            scopeLabel="project training data"
             onSubmit={
               trainingModal.mode === 'create'
                 ? (input) => createTraining({ variables: { input: { tenantId, projectId, entries: input.entries, description: input.description } } })
