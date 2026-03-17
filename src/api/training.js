@@ -6,7 +6,7 @@ export const GET_TENANT_TRAINING = gql`
       items {
         id
         description
-        content
+        entries { key value }
         tenantId
         projectId
         uploadedAt
@@ -27,7 +27,7 @@ export const GET_PROJECT_TRAINING = gql`
       items {
         id
         description
-        content
+        entries { key value }
         tenantId
         projectId
         uploadedAt
@@ -47,7 +47,7 @@ export const CREATE_TENANT_TRAINING = gql`
     createTenantTrainingData(input: $input) {
       id
       description
-      content
+      entries { key value }
       tenantId
       uploadedAt
       createdAt
@@ -60,7 +60,7 @@ export const CREATE_PROJECT_TRAINING = gql`
     createProjectTrainingData(input: $input) {
       id
       description
-      content
+      entries { key value }
       tenantId
       projectId
       uploadedAt
@@ -74,7 +74,7 @@ export const UPDATE_TRAINING = gql`
     updateTrainingData(id: $id, tenantId: $tenantId, input: $input) {
       id
       description
-      content
+      entries { key value }
       updatedAt
     }
   }

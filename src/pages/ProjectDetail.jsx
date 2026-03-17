@@ -425,11 +425,26 @@ function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
 
 // ─── Training data form ───────────────────────────────────────────────────────
 function TrainingForm({ initial, onSubmit, loading, error }) {
-  const [form, setForm] = useState({ description: initial?.description ?? '', content: initial?.content ?? '' })
+  const initialEntries = initial?.entries?.length ? initial.entries : [{ key: '', value: '' }]
+  const [form, setForm] = useState({
+    description: initial?.description ?? '',
+    entries: initialEntries.map((e) => ({ key: e.key ?? '', value: e.value ?? '' })),
+  })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+  const handleEntryChange = (idx, field, val) => {
+    setForm((p) => ({
+      ...p,
+      entries: p.entries.map((e, i) => (i === idx ? { ...e, [field]: val } : e)),
+    }))
+  }
+  const addEntry = () => setForm((p) => ({ ...p, entries: [...p.entries, { key: '', value: '' }] }))
+  const removeEntry = (idx) =>
+    setForm((p) => ({ ...p, entries: p.entries.filter((_, i) => i !== idx).length ? p.entries.filter((_, i) => i !== idx) : [{ key: '', value: '' }] }))
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSubmit({ description: form.description.trim() || null, content: form.content.trim() })
+    const entries = form.entries.filter((x) => (x.key ?? '').trim()).map((x) => ({ key: x.key.trim(), value: (x.value ?? '').trim() }))
+    if (!entries.length) return
+    onSubmit({ description: form.description.trim() || null, entries })
   }
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -439,8 +454,25 @@ function TrainingForm({ initial, onSubmit, loading, error }) {
         <input name="description" value={form.description} onChange={handleChange} placeholder="What is this training data about?" className={inputClass} />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Content *</label>
-        <textarea name="content" required value={form.content} onChange={handleChange} rows={8} placeholder="Paste training content here…" className={`${inputClass} resize-none font-mono text-xs`} />
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-sm font-medium text-gray-700">Key-value pairs *</label>
+          <button type="button" onClick={addEntry} className="text-xs font-medium text-indigo-600 hover:text-indigo-500">
+            + Add pair
+          </button>
+        </div>
+        <div className="space-y-2">
+          {form.entries.map((entry, idx) => (
+            <div key={idx} className="flex gap-2 items-center">
+              <input value={entry.key} onChange={(e) => handleEntryChange(idx, 'key', e.target.value)} placeholder="Key" className={`${inputClass} flex-1`} />
+              <input value={entry.value} onChange={(e) => handleEntryChange(idx, 'value', e.target.value)} placeholder="Value" className={`${inputClass} flex-1`} />
+              <button type="button" onClick={() => removeEntry(idx)} className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50" title="Remove">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
@@ -644,7 +676,7 @@ export default function ProjectDetail() {
         )
       } else if (msg.toLowerCase().includes('training data')) {
         setMutationError(
-          'Configure tenant or project training data first. Add custom data or AI Catalog selections in AI Training, or add project-specific training in the AI Training Data tab below.'
+          'Configure tenant or project training data first. Add custom data or AI Catalog selections in AI Training, or add project-specific training in the Custom Training Data tab below.'
         )
       } else if (msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('billing')) {
         setMutationError(
@@ -993,7 +1025,7 @@ export default function ProjectDetail() {
         {[
           { key: 'tasks', label: 'Tasks' },
           { key: 'calendar', label: 'Calendar' },
-          { key: 'training', label: 'AI Training Data' },
+          { key: 'training', label: 'Custom Training Data' },
           { key: 'emails', label: 'Emails' },
         ].map((tab) => (
           <button
@@ -1294,7 +1326,7 @@ export default function ProjectDetail() {
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
             <h2 className="text-base font-semibold text-gray-900">
-              AI Training Data <span className="text-gray-400 font-normal text-sm ml-1">({trainingTotal})</span>
+              Custom Training Data <span className="text-gray-400 font-normal text-sm ml-1">({trainingTotal})</span>
             </h2>
             <button
               onClick={() => { setMutationError(null); setTrainingModal({ mode: 'create' }) }}
@@ -1341,7 +1373,14 @@ export default function ProjectDetail() {
                         {entry.description && (
                           <p className="text-sm font-medium text-gray-800 mb-1">{entry.description}</p>
                         )}
-                        <p className="text-xs text-gray-400 font-mono bg-gray-50 rounded-lg p-2 line-clamp-2">{entry.content}</p>
+                        {entry.entries?.length ? (
+                          <div className="text-xs text-gray-400 font-mono bg-gray-50 rounded-lg p-2 space-y-1">
+                            {entry.entries.slice(0, 3).map((e, i) => (
+                              <div key={i} className="line-clamp-1">{e.key}: {e.value}</div>
+                            ))}
+                            {entry.entries.length > 3 && <div className="text-gray-300">+{entry.entries.length - 3} more</div>}
+                          </div>
+                        ) : null}
                         <p className="text-xs text-gray-300 mt-1.5">
                           Added {entry.createdAt ? formatDate(entry.createdAt) : '—'}
                         </p>
@@ -1422,8 +1461,8 @@ export default function ProjectDetail() {
             initial={trainingModal.entry}
             onSubmit={
               trainingModal.mode === 'create'
-                ? (input) => createTraining({ variables: { input: { ...input, projectId, tenantId } } })
-                : (input) => updateTraining({ variables: { id: trainingModal.entry.id, tenantId, input } })
+                ? (input) => createTraining({ variables: { input: { tenantId, projectId, entries: input.entries, description: input.description } } })
+                : (input) => updateTraining({ variables: { id: trainingModal.entry.id, tenantId, input: { entries: input.entries, description: input.description } } })
             }
             loading={creatingTraining || updatingTraining}
             error={mutationError}

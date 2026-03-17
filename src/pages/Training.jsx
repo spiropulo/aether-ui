@@ -35,15 +35,30 @@ function formatDate(d) {
 // ─── Custom training data form ────────────────────────────────────────────────
 
 function TrainingForm({ initial, onSubmit, loading, error }) {
+  const initialEntries = initial?.entries?.length ? initial.entries : [{ key: '', value: '' }]
   const [form, setForm] = useState({
     description: initial?.description ?? '',
-    content: initial?.content ?? '',
+    entries: initialEntries.map((e) => ({ key: e.key ?? '', value: e.value ?? '' })),
   })
+
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+  const handleEntryChange = (idx, field, val) => {
+    setForm((p) => ({
+      ...p,
+      entries: p.entries.map((e, i) => (i === idx ? { ...e, [field]: val } : e)),
+    }))
+  }
+  const addEntry = () => setForm((p) => ({ ...p, entries: [...p.entries, { key: '', value: '' }] }))
+  const removeEntry = (idx) =>
+    setForm((p) => ({ ...p, entries: p.entries.filter((_, i) => i !== idx).length ? p.entries.filter((_, i) => i !== idx) : [{ key: '', value: '' }] }))
+
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSubmit({ description: form.description.trim() || null, content: form.content.trim() })
+    const entries = form.entries.filter((x) => (x.key ?? '').trim()).map((x) => ({ key: x.key.trim(), value: (x.value ?? '').trim() }))
+    if (!entries.length) return
+    onSubmit({ description: form.description.trim() || null, entries })
   }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Alert message={error} />
@@ -58,17 +73,41 @@ function TrainingForm({ initial, onSubmit, loading, error }) {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Content *</label>
-        <textarea
-          name="content"
-          required
-          value={form.content}
-          onChange={handleChange}
-          rows={10}
-          placeholder="Paste training content here. This data will be used by AI to improve project estimates and support for this organization…"
-          className={`${inputClass} resize-none font-mono text-xs leading-relaxed`}
-        />
-        <p className="text-xs text-gray-400 mt-1">{form.content.length} characters</p>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-sm font-medium text-gray-700">Key-value pairs *</label>
+          <button type="button" onClick={addEntry} className="text-xs font-medium text-indigo-600 hover:text-indigo-500">
+            + Add pair
+          </button>
+        </div>
+        <div className="space-y-2">
+          {form.entries.map((entry, idx) => (
+            <div key={idx} className="flex gap-2 items-center">
+              <input
+                value={entry.key}
+                onChange={(e) => handleEntryChange(idx, 'key', e.target.value)}
+                placeholder="Key"
+                className={`${inputClass} flex-1`}
+              />
+              <input
+                value={entry.value}
+                onChange={(e) => handleEntryChange(idx, 'value', e.target.value)}
+                placeholder="Value"
+                className={`${inputClass} flex-1`}
+              />
+              <button
+                type="button"
+                onClick={() => removeEntry(idx)}
+                className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                title="Remove"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-gray-400 mt-1">At least one key-value pair required. The agent uses these for pricing context.</p>
       </div>
       <div className="flex justify-end pt-2">
         <button
@@ -202,10 +241,14 @@ function CustomDataTab({ tenantId }) {
                           <p className="text-xs text-gray-400">Added {formatDate(entry.createdAt)}</p>
                         </div>
                       </div>
-                      <div className="bg-gray-50 rounded-xl p-3 ml-11">
-                        <p className="text-xs text-gray-500 font-mono leading-relaxed line-clamp-4">{entry.content}</p>
-                        {entry.content.length > 300 && (
-                          <p className="text-xs text-gray-400 mt-1">{entry.content.length} characters total</p>
+                      <div className="bg-gray-50 rounded-xl p-3 ml-11 space-y-1">
+                        {(entry.entries ?? []).map((e, i) => (
+                          <p key={i} className="text-xs text-gray-600 font-mono">
+                            <span className="text-gray-500">{e.key}:</span> {e.value}
+                          </p>
+                        ))}
+                        {(!entry.entries || entry.entries.length === 0) && (
+                          <p className="text-xs text-gray-400 italic">No key-value pairs</p>
                         )}
                       </div>
                     </div>
@@ -249,8 +292,8 @@ function CustomDataTab({ tenantId }) {
             initial={modal.entry}
             onSubmit={
               modal.mode === 'create'
-                ? (input) => createTraining({ variables: { input: { ...input, tenantId } } })
-                : (input) => updateTraining({ variables: { id: modal.entry.id, tenantId, input } })
+                ? (input) => createTraining({ variables: { input: { tenantId, entries: input.entries, description: input.description } } })
+                : (input) => updateTraining({ variables: { id: modal.entry.id, tenantId, input: { entries: input.entries, description: input.description } } })
             }
             loading={creating || updating}
             error={mutationError}
@@ -512,7 +555,7 @@ export default function Training() {
   const [activeTab, setActiveTab] = useState('custom')
 
   const tabs = [
-    { id: 'custom', label: 'Custom Data' },
+    { id: 'custom', label: 'Custom Training Data' },
     { id: 'catalog', label: 'AI Catalog' },
   ]
 

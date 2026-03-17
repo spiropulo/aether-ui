@@ -18,6 +18,7 @@ export const GET_PROJECTS = gql`
         status
         startDate
         endDate
+        total
         addressLine1
         addressLine2
         city

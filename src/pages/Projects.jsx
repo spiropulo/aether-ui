@@ -154,6 +154,11 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function formatCurrency(n) {
+  if (n == null || Number.isNaN(n)) return '—'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n)
+}
+
 export default function Projects() {
   const { user } = useAuth()
   const tenantId = user?.tenantId
@@ -244,6 +249,7 @@ export default function Projects() {
                 <tr className="border-b border-gray-100 bg-gray-50/50">
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Project</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Status</th>
+                  <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Total cost</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Start</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">End</th>
                   <th className="px-6 py-3" />
@@ -271,6 +277,9 @@ export default function Projects() {
                       ) : (
                         <span className="text-gray-400">—</span>
                       )}
+                    </td>
+                    <td className="px-6 py-4 text-right hidden lg:table-cell text-sm font-medium text-gray-700 tabular-nums">
+                      {formatCurrency(project.total)}
                     </td>
                     <td className="px-6 py-4 text-gray-500 hidden lg:table-cell text-xs">
                       {formatDate(project.startDate)}
