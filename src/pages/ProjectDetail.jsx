@@ -15,6 +15,8 @@ import {
   GET_OFFERS_BY_PROJECT,
   GET_PROJECT_EMAILS,
   SEND_PROJECT_EMAIL,
+  GET_PROJECT_PRICING_RUNS,
+  DELETE_PRICING_RUN,
 } from '../api/projects'
 import { GET_USER_PROFILES } from '../api/users'
 import AssigneeSelector from '../components/ui/AssigneeSelector'
@@ -82,6 +84,197 @@ function getDaysInMonth(year, month) {
   const first = new Date(year, month, 1)
   const last = new Date(year, month + 1, 0)
   return { startPad: first.getDay(), days: last.getDate() }
+}
+
+// ─── Pricing run card ─────────────────────────────────────────────────────────
+function PricingRunCard({ run, formatDate, formatCurrency, onDelete }) {
+  const [expanded, setExpanded] = useState(false)
+  const [copiedSection, setCopiedSection] = useState(null)
+  const handleCopy = (text, section) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedSection(section)
+      setTimeout(() => setCopiedSection(null), 1500)
+    })
+  }
+  const runAt = run.runAt ? formatDate(run.runAt) : '—'
+  const toolCalls = run.toolCallsMade ?? 0
+  let offersSnapshot = null
+  try {
+    if (run.offersSnapshot) offersSnapshot = JSON.parse(run.offersSnapshot)
+  } catch (_) {}
+  const projectTotal = offersSnapshot?.projectTotal ?? null
+  const offers = offersSnapshot?.offers ?? []
+  let toolCallLogParsed = null
+  try {
+    if (run.toolCallLog) toolCallLogParsed = JSON.parse(run.toolCallLog)
+  } catch (_) {}
+  let activityLogParsed = null
+  try {
+    if (run.agentActivityLog) activityLogParsed = JSON.parse(run.agentActivityLog)
+  } catch (_) {}
+
+  return (
+    <div className="p-4 rounded-xl border border-gray-100 bg-gray-50/50">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <p className="text-sm font-medium text-gray-900">
+              {runAt}
+              {toolCalls > 0 && (
+                <span className="ml-2 text-gray-500 font-normal">
+                  {toolCalls} tool call{toolCalls !== 1 ? 's' : ''}
+                </span>
+              )}
+            </p>
+            {projectTotal != null && (
+              <span className="text-sm font-semibold text-indigo-700">
+                {formatCurrency(projectTotal)}
+              </span>
+            )}
+          </div>
+          {(run.report || run.agentReport) && (
+            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{run.report || run.agentReport}</p>
+          )}
+          {offers.length > 0 && !expanded && (
+            <p className="text-xs text-gray-500 mt-1">
+              {offers.length} offer{offers.length !== 1 ? 's' : ''} priced
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="px-3 py-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
+          >
+            {expanded ? 'Less' : 'Details'}
+          </button>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(run)}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Delete"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+      {expanded && (
+        <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
+          {(run.report || run.agentReport) && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Report</p>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(run.report || run.agentReport || '', 'report')}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                >
+                  {copiedSection === 'report' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans overflow-x-auto p-4 rounded-lg bg-white border border-gray-100 max-h-64 overflow-y-auto select-text cursor-text leading-relaxed">
+                {run.report || run.agentReport}
+              </pre>
+            </div>
+          )}
+          {offers.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Prices set ({formatCurrency(projectTotal)} total)
+              </p>
+              <div className="rounded-lg bg-white border border-gray-100 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50/80 border-b border-gray-100">
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Offer</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Qty</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Unit cost</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {offers.map((o, i) => (
+                      <tr key={i} className="border-b border-gray-50 last:border-0">
+                        <td className="px-3 py-2 text-gray-900">{o.name ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600">{o.quantity ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-gray-600">{formatCurrency(o.unitCost)}</td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900">{formatCurrency(o.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {!run.report && run.agentReport && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Agent report</p>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(run.agentReport, 'agentReport')}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                >
+                  {copiedSection === 'agentReport' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <pre className="text-sm text-gray-800 whitespace-pre-wrap font-mono overflow-x-auto p-3 rounded-lg bg-white border border-gray-100 max-h-48 overflow-y-auto select-text cursor-text">
+                {run.agentReport}
+              </pre>
+            </div>
+          )}
+          {(toolCallLogParsed?.length > 0 || activityLogParsed?.length > 0) && (
+            <details className="group">
+              <summary className="text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700">
+                Technical details (tool calls, activity log)
+              </summary>
+              <div className="mt-3 space-y-3">
+                {toolCallLogParsed && Array.isArray(toolCallLogParsed) && toolCallLogParsed.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-500">Tool calls</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(JSON.stringify(toolCallLogParsed, null, 2), 'toolCalls')}
+                        className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                      >
+                        {copiedSection === 'toolCalls' ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono overflow-x-auto p-3 rounded-lg bg-gray-50 border border-gray-100 max-h-40 overflow-y-auto select-text cursor-text">
+                      {JSON.stringify(toolCallLogParsed, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {activityLogParsed && Array.isArray(activityLogParsed) && activityLogParsed.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-500">Activity log</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(JSON.stringify(activityLogParsed, null, 2), 'activityLog')}
+                        className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                      >
+                        {copiedSection === 'activityLog' ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono overflow-x-auto p-3 rounded-lg bg-gray-50 border border-gray-100 max-h-40 overflow-y-auto select-text cursor-text">
+                      {JSON.stringify(activityLogParsed, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Project Calendar (tasks with dates) ────────────────────────────────────────
@@ -452,6 +645,10 @@ export default function ProjectDetail() {
   const [emailModal, setEmailModal] = useState(null) // { type: 'project'|'task', taskId?, taskName?, toEmails }
   const [emailSearch, setEmailSearch] = useState('')
   const [emailSearchInput, setEmailSearchInput] = useState('')
+  const [pricingRunsSearch, setPricingRunsSearch] = useState('')
+  const [pricingRunsSearchInput, setPricingRunsSearchInput] = useState('')
+  const [pricingConfirmOpen, setPricingConfirmOpen] = useState(false)
+  const [deletePricingRunTarget, setDeletePricingRunTarget] = useState(null)
 
   const [mutationError, setMutationError] = useState(null)
 
@@ -503,6 +700,7 @@ export default function ProjectDetail() {
   const { data: offersByProjectData, refetch: refetchOffers } = useQuery(GET_OFFERS_BY_PROJECT, {
     variables: { tenantId, projectId },
     skip: !tenantId || !projectId,
+    fetchPolicy: 'network-only',
   })
 
   // Check if training data is configured (required for Request Pricing)
@@ -526,6 +724,10 @@ export default function ProjectDetail() {
     variables: { projectId, tenantId },
     skip: !tenantId || !projectId,
   })
+  const { data: pricingRunsData, loading: pricingRunsLoading, refetch: refetchPricingRuns } = useQuery(GET_PROJECT_PRICING_RUNS, {
+    variables: { projectId, tenantId },
+    skip: !tenantId || !projectId,
+  })
   const teamMembers = teamData?.userProfiles?.items ?? []
   const projectEmails = emailsData?.projectEmails ?? []
   const emailSearchLower = emailSearch.trim().toLowerCase()
@@ -537,6 +739,19 @@ export default function ProjectDetail() {
         return subject.includes(emailSearchLower) || body.includes(emailSearchLower) || toStr.includes(emailSearchLower)
       })
     : projectEmails
+
+  const projectPricingRuns = pricingRunsData?.projectPricingRuns ?? []
+  const pricingRunsSearchLower = pricingRunsSearch.trim().toLowerCase()
+  const filteredPricingRuns = pricingRunsSearchLower
+    ? projectPricingRuns.filter((run) => {
+        const report = (run.report ?? run.agentReport ?? '').toLowerCase()
+        const toolLog = (run.toolCallLog ?? '').toLowerCase()
+        const activityLog = (run.agentActivityLog ?? '').toLowerCase()
+        const runAt = (run.runAt ?? '').toLowerCase()
+        const offersSnap = (run.offersSnapshot ?? '').toLowerCase()
+        return report.includes(pricingRunsSearchLower) || toolLog.includes(pricingRunsSearchLower) || activityLog.includes(pricingRunsSearchLower) || runAt.includes(pricingRunsSearchLower) || offersSnap.includes(pricingRunsSearchLower)
+      })
+    : projectPricingRuns
 
   const hasTenantTraining = (tenantTrainingCheck?.tenantTrainingData?.total ?? 0) > 0
   const hasTenantCatalog = (tenantPretrainCheck?.tenantSelectedPretrainData?.length ?? 0) > 0
@@ -564,7 +779,7 @@ export default function ProjectDetail() {
   })
 
   const [deleteTask, { loading: deletingTask }] = useMutation(DELETE_TASK, {
-    onCompleted: () => { setDeleteTarget(null); refetchTasks() },
+    onCompleted: () => { setDeleteTarget(null); refetchTasks(); refetchOffers() },
     onError: (e) => setMutationError(e.message),
   })
 
@@ -588,6 +803,11 @@ export default function ProjectDetail() {
     onError: (e) => setMutationError(e.message),
   })
 
+  const [deletePricingRun, { loading: deletingPricingRun }] = useMutation(DELETE_PRICING_RUN, {
+    onCompleted: () => { setDeletePricingRunTarget(null); refetchPricingRuns() },
+    onError: (e) => setMutationError(e.message),
+  })
+
   const project = projectData?.project
   const displayStatus = statusPollData?.project?.status ?? project?.status
   const sourcePdfUploadId = statusPollData?.project?.sourcePdfUploadId ?? project?.sourcePdfUploadId
@@ -608,6 +828,7 @@ export default function ProjectDetail() {
       refetchProject()
       refetchTasks()
       refetchOffers()
+      refetchPricingRuns()
     } catch (err) {
       const msg = err.message || ''
       if (msg.toLowerCase().includes('address')) {
@@ -899,7 +1120,7 @@ export default function ProjectDetail() {
                 </div>
               )}
               <button
-                onClick={handleRequestPricing}
+                onClick={() => setPricingConfirmOpen(true)}
                 disabled={pricingInProgress || !hasTrainingData || !hasAddress}
                 title={
                   pricingInProgress ? 'Pricing in progress…' :
@@ -965,6 +1186,7 @@ export default function ProjectDetail() {
           { key: 'tasks', label: 'Tasks' },
           { key: 'calendar', label: 'Calendar' },
           { key: 'training', label: 'Custom Training Data' },
+          { key: 'pricingRuns', label: 'Pricing runs' },
           { key: 'emails', label: 'Emails' },
         ].map((tab) => (
           <button
@@ -1183,6 +1405,74 @@ export default function ProjectDetail() {
       )}
 
       {/* Training data tab */}
+      {activeTab === 'pricingRuns' && (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-6 py-4 border-b border-gray-100">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1 min-w-0">
+              <h2 className="text-base font-semibold text-gray-900">
+                Pricing runs <span className="text-gray-400 font-normal text-sm ml-1">({filteredPricingRuns.length}{pricingRunsSearch ? ` of ${projectPricingRuns.length}` : ''})</span>
+              </h2>
+              <form
+                onSubmit={(e) => { e.preventDefault(); setPricingRunsSearch(pricingRunsSearchInput) }}
+                className="flex gap-2 flex-1 max-w-sm"
+              >
+                <input
+                  value={pricingRunsSearchInput}
+                  onChange={(e) => setPricingRunsSearchInput(e.target.value)}
+                  placeholder="Search report, tool calls, activity…"
+                  className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition"
+                />
+                <button type="submit" className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl transition-colors">
+                  Search
+                </button>
+                {pricingRunsSearch && (
+                  <button type="button" onClick={() => { setPricingRunsSearch(''); setPricingRunsSearchInput('') }} className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">
+                    Clear
+                  </button>
+                )}
+              </form>
+            </div>
+          </div>
+          <div className="p-6">
+            {pricingRunsLoading ? (
+              <div className="flex justify-center py-12"><Spinner /></div>
+            ) : projectPricingRuns.length === 0 ? (
+              <EmptyState
+                title="No pricing runs yet"
+                description="Request pricing using the button above. Each run will be recorded here so you can see what the AI agent did."
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                }
+              />
+            ) : filteredPricingRuns.length === 0 ? (
+              <EmptyState
+                title="No matching runs"
+                description="Try a different search term."
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                }
+              />
+            ) : (
+              <div className="space-y-4">
+                {filteredPricingRuns.map((run) => (
+                  <PricingRunCard
+                    key={run.id}
+                    run={run}
+                    formatDate={formatDate}
+                    formatCurrency={formatCurrency}
+                    onDelete={(r) => setDeletePricingRunTarget(r)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'emails' && (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-6 py-4 border-b border-gray-100">
@@ -1444,6 +1734,36 @@ export default function ProjectDetail() {
               },
             },
           })
+        }}
+      />
+
+      {/* Delete pricing run confirm */}
+      <ConfirmDialog
+        open={!!deletePricingRunTarget}
+        onClose={() => setDeletePricingRunTarget(null)}
+        loading={deletingPricingRun}
+        title="Delete pricing run?"
+        message="This will permanently remove this run report. The project offers will not be affected."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (deletePricingRunTarget) {
+            deletePricingRun({ variables: { id: deletePricingRunTarget.id, projectId, tenantId } })
+          }
+        }}
+      />
+
+      {/* Pricing confirm */}
+      <ConfirmDialog
+        open={pricingConfirmOpen}
+        onClose={() => setPricingConfirmOpen(false)}
+        loading={pricingLoading}
+        title="Request pricing?"
+        message="The AI agent will analyze your project and update offers with pricing. This may take a few minutes and will modify the project. Proceed?"
+        confirmLabel="Request pricing"
+        variant="neutral"
+        onConfirm={async () => {
+          await handleRequestPricing()
+          setPricingConfirmOpen(false)
         }}
       />
 

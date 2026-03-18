@@ -284,6 +284,31 @@ export const DELETE_OFFER = gql`
   }
 `
 
+// ─── Pricing Runs (agentic reports) ──────────────────────────────────────────
+
+export const GET_PROJECT_PRICING_RUNS = gql`
+  query GetProjectPricingRuns($projectId: String!, $tenantId: String!) {
+    projectPricingRuns(projectId: $projectId, tenantId: $tenantId) {
+      id
+      projectId
+      tenantId
+      report
+      agentReport
+      toolCallLog
+      agentActivityLog
+      toolCallsMade
+      runAt
+      offersSnapshot
+    }
+  }
+`
+
+export const DELETE_PRICING_RUN = gql`
+  mutation DeletePricingRun($id: ID!, $projectId: String!, $tenantId: String!) {
+    deletePricingRun(id: $id, projectId: $projectId, tenantId: $tenantId)
+  }
+`
+
 // ─── Project Email ───────────────────────────────────────────────────────────
 
 export const GET_PROJECT_EMAILS = gql`

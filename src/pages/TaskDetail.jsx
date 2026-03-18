@@ -7,6 +7,7 @@ import {
   GET_TASK,
   UPDATE_TASK,
   GET_OFFERS,
+  GET_OFFERS_BY_PROJECT,
   CREATE_OFFER,
   UPDATE_OFFER,
   DELETE_OFFER,
@@ -521,15 +522,25 @@ export default function TaskDetail() {
     onError: (e) => setMutationError(e.message),
   })
 
+  const offerRefetchQueries = [
+    { query: GET_OFFERS_BY_PROJECT, variables: { projectId, tenantId } },
+  ]
+
   const [createOffer, { loading: creatingOffer }] = useMutation(CREATE_OFFER, {
+    refetchQueries: offerRefetchQueries,
+    awaitRefetchQueries: true,
     onCompleted: () => { setOfferModal(null); refetchOffers() },
     onError: (e) => setMutationError(e.message),
   })
   const [updateOffer, { loading: updatingOffer }] = useMutation(UPDATE_OFFER, {
+    refetchQueries: offerRefetchQueries,
+    awaitRefetchQueries: true,
     onCompleted: () => { setOfferModal(null); setDescriptionEditTarget(null); refetchOffers() },
     onError: (e) => setMutationError(e.message),
   })
   const [deleteOffer, { loading: deletingOffer }] = useMutation(DELETE_OFFER, {
+    refetchQueries: offerRefetchQueries,
+    awaitRefetchQueries: true,
     onCompleted: () => { setDeleteTarget(null); refetchOffers() },
     onError: (e) => setMutationError(e.message),
   })
