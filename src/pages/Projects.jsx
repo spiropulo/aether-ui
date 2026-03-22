@@ -8,6 +8,7 @@ import {
   CREATE_PROJECT,
   UPDATE_PROJECT,
   DELETE_PROJECT,
+  PROJECT_STATUS_OPTIONS,
 } from '../api/projects'
 import Modal from '../components/ui/Modal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
@@ -22,10 +23,15 @@ const inputClass =
   'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition'
 
 function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error }) {
+  const statusOptions =
+    suggestedStatuses.length > 0 ? suggestedStatuses : PROJECT_STATUS_OPTIONS
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
-    status: initial?.status ?? '',
+    status:
+      initial !== undefined && initial !== null
+        ? (initial.status ?? '')
+        : 'Not Started',
     startDate: initial?.startDate ?? '',
     endDate: initial?.endDate ?? '',
     addressLine1: initial?.addressLine1 ?? '',
@@ -75,22 +81,17 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
-        <input
-          name="status"
-          type="text"
-          value={form.status}
-          onChange={handleChange}
-          placeholder="e.g. Active, On Hold"
-          list={suggestedStatuses.length ? 'project-status-suggestions' : undefined}
-          className={inputClass}
-        />
-        {suggestedStatuses.length > 0 && (
-          <datalist id="project-status-suggestions">
-            {suggestedStatuses.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-        )}
+        <select name="status" value={form.status} onChange={handleChange} className={inputClass}>
+          <option value="">— None —</option>
+          {statusOptions.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+          {form.status && !statusOptions.includes(form.status) ? (
+            <option value={form.status}>{form.status} (other)</option>
+          ) : null}
+        </select>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -162,6 +163,7 @@ function formatCurrency(n) {
 export default function Projects() {
   const { user } = useAuth()
   const tenantId = user?.tenantId
+  const isAdmin = user?.role === 'ADMIN'
 
   const [offset, setOffset] = useState(0)
   const [modal, setModal] = useState(null)
@@ -249,7 +251,9 @@ export default function Projects() {
                 <tr className="border-b border-gray-100 bg-gray-50/50">
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Project</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Status</th>
-                  <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Total cost</th>
+                  {isAdmin && (
+                    <th className="text-right px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Total cost</th>
+                  )}
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Start</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">End</th>
                   <th className="px-6 py-3" />
@@ -278,9 +282,11 @@ export default function Projects() {
                         <span className="text-gray-400">—</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-right hidden lg:table-cell text-sm font-medium text-gray-700 tabular-nums">
-                      {formatCurrency(project.total)}
-                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4 text-right hidden lg:table-cell text-sm font-medium text-gray-700 tabular-nums">
+                        {formatCurrency(project.total)}
+                      </td>
+                    )}
                     <td className="px-6 py-4 text-gray-500 hidden lg:table-cell text-xs">
                       {formatDate(project.startDate)}
                     </td>
@@ -325,6 +331,7 @@ export default function Projects() {
       >
         {modal && (
           <ProjectForm
+            key={modal.mode === 'edit' ? modal.project.id : 'create'}
             initial={modal.project}
             suggestedStatuses={suggestedStatuses}
             onSubmit={modal.mode === 'create' ? handleCreate : handleUpdate}

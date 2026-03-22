@@ -12,14 +12,16 @@ import {
   CREATE_TASK,
   UPDATE_TASK,
   DELETE_TASK,
+  GET_OFFERS,
   GET_OFFERS_BY_PROJECT,
   GET_PROJECT_EMAILS,
   SEND_PROJECT_EMAIL,
   GET_PROJECT_PRICING_RUNS,
   DELETE_PRICING_RUN,
+  DELETE_ALL_PRICING_RUNS_FOR_PROJECT,
+  PROJECT_STATUS_OPTIONS,
 } from '../api/projects'
 import { GET_USER_PROFILES } from '../api/users'
-import AssigneeSelector from '../components/ui/AssigneeSelector'
 import { downloadPdf, requestProjectPricing, exportProjectPdf } from '../api/estimate'
 import EmailComposeModal from '../components/EmailComposeModal'
 import {
@@ -29,7 +31,6 @@ import {
   UPDATE_TRAINING,
   DELETE_TRAINING,
 } from '../api/training'
-import { GET_TENANT_SELECTED_PRETRAIN } from '../api/pretrain'
 import Modal from '../components/ui/Modal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
@@ -37,6 +38,8 @@ import Spinner from '../components/ui/Spinner'
 import Pagination from '../components/ui/Pagination'
 import Alert from '../components/ui/Alert'
 import TrainingDataForm from '../components/TrainingDataForm'
+import CalendarColorSwatchSelect from '../components/ui/CalendarColorSwatchSelect'
+import { CALENDAR_COLORS } from '../components/ui/calendarColors'
 
 const PAGE_SIZE = 20
 
@@ -69,17 +72,6 @@ function offerAmount(offer) {
   return q * c
 }
 
-const CALENDAR_COLORS = [
-  { value: '#6366F1', label: 'Indigo' },
-  { value: '#3B82F6', label: 'Blue' },
-  { value: '#10B981', label: 'Emerald' },
-  { value: '#F59E0B', label: 'Amber' },
-  { value: '#EF4444', label: 'Red' },
-  { value: '#8B5CF6', label: 'Violet' },
-  { value: '#EC4899', label: 'Pink' },
-  { value: '#14B8A6', label: 'Teal' },
-]
-
 function getDaysInMonth(year, month) {
   const first = new Date(year, month, 1)
   const last = new Date(year, month + 1, 0)
@@ -101,17 +93,17 @@ function PricingRunCard({ run, formatDate, formatCurrency, onDelete }) {
   let offersSnapshot = null
   try {
     if (run.offersSnapshot) offersSnapshot = JSON.parse(run.offersSnapshot)
-  } catch (_) {}
+  } catch { /* invalid JSON */ }
   const projectTotal = offersSnapshot?.projectTotal ?? null
   const offers = offersSnapshot?.offers ?? []
   let toolCallLogParsed = null
   try {
     if (run.toolCallLog) toolCallLogParsed = JSON.parse(run.toolCallLog)
-  } catch (_) {}
+  } catch { /* invalid JSON */ }
   let activityLogParsed = null
   try {
     if (run.agentActivityLog) activityLogParsed = JSON.parse(run.agentActivityLog)
-  } catch (_) {}
+  } catch { /* invalid JSON */ }
 
   return (
     <div className="p-4 rounded-xl border border-gray-100 bg-gray-50/50">
@@ -425,7 +417,9 @@ function ProjectCalendar({ projectId, tasks, onSwitchToTasks, refetchTasks }) {
 }
 
 // ─── Project edit form ────────────────────────────────────────────────────────
-function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error }) {
+function ProjectForm({ initial, suggestedStatuses = [], teamMembers = [], isAdmin = false, onSubmit, loading, error }) {
+  const statusOptions =
+    suggestedStatuses.length > 0 ? suggestedStatuses : PROJECT_STATUS_OPTIONS
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
@@ -439,10 +433,16 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
     postalCode: initial?.postalCode ?? '',
     country: initial?.country ?? '',
   })
+  const [laborRows, setLaborRows] = useState(() =>
+    (initial?.laborRateOverrides ?? []).map((o) => ({
+      userProfileId: o.userProfileId,
+      hourlyRate: String(o.hourlyRate),
+    })),
+  )
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSubmit({
+    const payload = {
       name: form.name.trim(),
       description: form.description.trim() || null,
       status: form.status.trim() || null,
@@ -454,7 +454,13 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
       state: form.state.trim() || null,
       postalCode: form.postalCode.trim() || null,
       country: form.country.trim() || null,
-    })
+    }
+    if (isAdmin) {
+      payload.laborRateOverrides = laborRows
+        .filter((r) => r.userProfileId && r.hourlyRate.trim() !== '')
+        .map((r) => ({ userProfileId: r.userProfileId, hourlyRate: parseFloat(r.hourlyRate) }))
+    }
+    onSubmit(payload)
   }
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -469,22 +475,17 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
       </div>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
-        <input
-          name="status"
-          type="text"
-          value={form.status}
-          onChange={handleChange}
-          placeholder="e.g. Active, On Hold"
-          list={suggestedStatuses.length ? 'project-status-suggestions-detail' : undefined}
-          className={inputClass}
-        />
-        {suggestedStatuses.length > 0 && (
-          <datalist id="project-status-suggestions-detail">
-            {suggestedStatuses.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-        )}
+        <select name="status" value={form.status} onChange={handleChange} className={inputClass}>
+          <option value="">— None —</option>
+          {statusOptions.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+          {form.status && !statusOptions.includes(form.status) ? (
+            <option value={form.status}>{form.status} (other)</option>
+          ) : null}
+        </select>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -529,6 +530,66 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
           </div>
         </div>
       </div>
+      {isAdmin && (
+        <div className="border-t border-gray-200 pt-4 mt-4">
+          <h3 className="text-sm font-semibold text-gray-800 mb-1">Labor rates on this project</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Override a team member&apos;s default hourly rate for the Estimator on this project only. Task calendar dates and assignees drive labor duration.
+          </p>
+          <div className="space-y-2">
+            {laborRows.map((row, idx) => (
+              <div key={idx} className="flex flex-wrap items-end gap-2">
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Member</label>
+                  <select
+                    value={row.userProfileId}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setLaborRows((rows) => rows.map((r, i) => (i === idx ? { ...r, userProfileId: v } : r)))
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="">— Select —</option>
+                    {teamMembers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.displayName || `${m.firstName || ''} ${m.lastName || ''}`.trim() || m.username}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="w-28">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">$/hr</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={row.hourlyRate}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setLaborRows((rows) => rows.map((r, i) => (i === idx ? { ...r, hourlyRate: v } : r)))
+                    }}
+                    className={inputClass}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLaborRows((rows) => rows.filter((_, i) => i !== idx))}
+                  className="text-xs text-red-600 hover:text-red-700 px-2 py-2.5"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setLaborRows((rows) => [...rows, { userProfileId: '', hourlyRate: '' }])}
+              className="text-xs font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              + Add override
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
           {loading && <Spinner size="sm" />}
@@ -539,12 +600,19 @@ function ProjectForm({ initial, suggestedStatuses = [], onSubmit, loading, error
   )
 }
 
+function taskFormOfferAssigneesLabel(offer, teamMembers) {
+  if (!offer?.assigneeIds?.length) return 'No assignees'
+  const names = offer.assigneeIds.map(
+    (id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id,
+  )
+  return names.filter(Boolean).join(', ') || '—'
+}
+
 // ─── Task form ────────────────────────────────────────────────────────────────
-function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
+function TaskForm({ initial, onSubmit, loading, error, teamMembers, offers = [] }) {
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
-    assigneeIds: initial?.assigneeIds ?? [],
     startDate: initial?.startDate ?? '',
     endDate: initial?.endDate ?? '',
     calendarColor: initial?.calendarColor ?? CALENDAR_COLORS[0].value,
@@ -555,12 +623,13 @@ function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
     onSubmit({
       name: form.name.trim(),
       description: form.description.trim() || null,
-      assigneeIds: form.assigneeIds?.length ? form.assigneeIds : null,
+      assigneeIds: initial?.assigneeIds ?? [],
       startDate: form.startDate || null,
       endDate: form.endDate || null,
       calendarColor: form.calendarColor || null,
     })
   }
+  const taskExists = Boolean(initial?.id)
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <Alert message={error} />
@@ -579,34 +648,33 @@ function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">End date (for calendar)</label>
-          <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={inputClass} />
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Calendar color</label>
-        <div className="flex flex-wrap gap-2 mt-1.5">
-          {CALENDAR_COLORS.map((c) => (
-            <button
-              key={c.value}
-              type="button"
-              onClick={() => setForm((p) => ({ ...p, calendarColor: c.value }))}
-              className={`w-8 h-8 rounded-lg border-2 transition-all ${
-                form.calendarColor === c.value ? 'border-gray-900 scale-110' : 'border-transparent hover:border-gray-300'
-              }`}
-              style={{ backgroundColor: c.value }}
-              title={c.label}
-              aria-label={c.label}
+          <div className="flex gap-2 items-stretch">
+            <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={`${inputClass} flex-1 min-w-0`} />
+            <CalendarColorSwatchSelect
+              value={form.calendarColor}
+              onChange={(v) => setForm((p) => ({ ...p, calendarColor: v }))}
+              triggerClassName="flex items-center gap-1 rounded-xl border border-gray-200 bg-gray-50 px-2 py-2 hover:bg-gray-100 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition h-full min-h-[42px]"
             />
-          ))}
+          </div>
         </div>
       </div>
-      {teamMembers && (
-        <AssigneeSelector
-          teamMembers={teamMembers}
-          value={form.assigneeIds}
-          onChange={(ids) => setForm((p) => ({ ...p, assigneeIds: ids }))}
-        />
-      )}
+      <div className="border-t border-gray-200 pt-4 mt-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-2">Team</h3>
+        {!taskExists ? (
+          <p className="text-sm text-gray-500">Create the task first, then open it to add offers and assign team members.</p>
+        ) : offers.length === 0 ? (
+          <p className="text-sm text-gray-500">No offers yet. Open this task to add offers and assign team members.</p>
+        ) : (
+          <ul className="space-y-2 max-h-52 overflow-y-auto pr-1">
+            {offers.map((offer) => (
+              <li key={offer.id} className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                <p className="text-sm font-medium text-gray-900">{offer.name}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{taskFormOfferAssigneesLabel(offer, teamMembers)}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
           {loading && <Spinner size="sm" />}
@@ -623,6 +691,7 @@ export default function ProjectDetail() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const tenantId = user?.tenantId
+  const isAdmin = user?.role === 'ADMIN'
 
   const [activeTab, setActiveTab] = useState('tasks')
   const [taskOffset, setTaskOffset] = useState(0)
@@ -649,6 +718,7 @@ export default function ProjectDetail() {
   const [pricingRunsSearchInput, setPricingRunsSearchInput] = useState('')
   const [pricingConfirmOpen, setPricingConfirmOpen] = useState(false)
   const [deletePricingRunTarget, setDeletePricingRunTarget] = useState(null)
+  const [deleteAllPricingRunsOpen, setDeleteAllPricingRunsOpen] = useState(false)
 
   const [mutationError, setMutationError] = useState(null)
 
@@ -677,6 +747,12 @@ export default function ProjectDetail() {
     if (!projectId || typeof window === 'undefined') return
     setSourcePdfBannerHidden(localStorage.getItem(`aether_hide_source_pdf_${projectId}`) === 'true')
   }, [projectId])
+
+  useEffect(() => {
+    if (!isAdmin && (activeTab === 'training' || activeTab === 'pricingRuns')) {
+      setActiveTab('tasks')
+    }
+  }, [isAdmin, activeTab])
 
   const { data: tasksData, loading: tasksLoading, refetch: refetchTasks } = useQuery(GET_TASKS, {
     variables: {
@@ -708,11 +784,8 @@ export default function ProjectDetail() {
     variables: { tenantId, page: { limit: 1, offset: 0 } },
     skip: !tenantId,
   })
-  const { data: tenantPretrainCheck } = useQuery(GET_TENANT_SELECTED_PRETRAIN, {
-    variables: { tenantId },
-    skip: !tenantId,
-  })
-  const { data: projectTrainingCheck } = useQuery(GET_PROJECT_TRAINING, {
+  /** Used only for pricing checklist `hasProjectTraining`; must refetch after project training mutations (separate cache key from the tab list query). */
+  const { data: projectTrainingCheck, refetch: refetchProjectTrainingCheck } = useQuery(GET_PROJECT_TRAINING, {
     variables: { tenantId, projectId, page: { limit: 1, offset: 0 } },
     skip: !tenantId || !projectId,
   })
@@ -726,9 +799,16 @@ export default function ProjectDetail() {
   })
   const { data: pricingRunsData, loading: pricingRunsLoading, refetch: refetchPricingRuns } = useQuery(GET_PROJECT_PRICING_RUNS, {
     variables: { projectId, tenantId },
-    skip: !tenantId || !projectId,
+    skip: !tenantId || !projectId || !isAdmin,
   })
   const teamMembers = teamData?.userProfiles?.items ?? []
+
+  const taskModalTaskId = taskModal?.mode === 'edit' && taskModal?.task?.id ? taskModal.task.id : null
+  const { data: taskModalOffersData } = useQuery(GET_OFFERS, {
+    variables: { projectId, taskId: taskModalTaskId, tenantId, page: { limit: 100, offset: 0 } },
+    skip: !tenantId || !projectId || !taskModalTaskId,
+  })
+  const taskModalOffers = taskModalOffersData?.offers?.items ?? []
   const projectEmails = emailsData?.projectEmails ?? []
   const emailSearchLower = emailSearch.trim().toLowerCase()
   const filteredEmails = emailSearchLower
@@ -754,9 +834,8 @@ export default function ProjectDetail() {
     : projectPricingRuns
 
   const hasTenantTraining = (tenantTrainingCheck?.tenantTrainingData?.total ?? 0) > 0
-  const hasTenantCatalog = (tenantPretrainCheck?.tenantSelectedPretrainData?.length ?? 0) > 0
   const hasProjectTraining = (projectTrainingCheck?.projectTrainingData?.total ?? 0) > 0
-  const hasTrainingData = hasTenantTraining || hasTenantCatalog || hasProjectTraining
+  const hasTrainingData = hasTenantTraining || hasProjectTraining
 
   const [updateProject, { loading: updatingProject }] = useMutation(UPDATE_PROJECT, {
     onCompleted: () => { setProjectModal(false); refetchProject() },
@@ -784,17 +863,29 @@ export default function ProjectDetail() {
   })
 
   const [createTraining, { loading: creatingTraining }] = useMutation(CREATE_PROJECT_TRAINING, {
-    onCompleted: () => { setTrainingModal(null); refetchTraining() },
+    onCompleted: () => {
+      setTrainingModal(null)
+      refetchTraining()
+      refetchProjectTrainingCheck()
+    },
     onError: (e) => setMutationError(e.message),
   })
 
   const [updateTraining, { loading: updatingTraining }] = useMutation(UPDATE_TRAINING, {
-    onCompleted: () => { setTrainingModal(null); refetchTraining() },
+    onCompleted: () => {
+      setTrainingModal(null)
+      refetchTraining()
+      refetchProjectTrainingCheck()
+    },
     onError: (e) => setMutationError(e.message),
   })
 
   const [deleteTraining, { loading: deletingTraining }] = useMutation(DELETE_TRAINING, {
-    onCompleted: () => { setDeleteTarget(null); refetchTraining() },
+    onCompleted: () => {
+      setDeleteTarget(null)
+      refetchTraining()
+      refetchProjectTrainingCheck()
+    },
     onError: (e) => setMutationError(e.message),
   })
 
@@ -808,6 +899,16 @@ export default function ProjectDetail() {
     onError: (e) => setMutationError(e.message),
   })
 
+  const [deleteAllPricingRuns, { loading: deletingAllPricingRuns }] = useMutation(DELETE_ALL_PRICING_RUNS_FOR_PROJECT, {
+    onCompleted: () => {
+      setDeleteAllPricingRunsOpen(false)
+      setPricingRunsSearch('')
+      setPricingRunsSearchInput('')
+      refetchPricingRuns()
+    },
+    onError: (e) => setMutationError(e.message),
+  })
+
   const project = projectData?.project
   const displayStatus = statusPollData?.project?.status ?? project?.status
   const sourcePdfUploadId = statusPollData?.project?.sourcePdfUploadId ?? project?.sourcePdfUploadId
@@ -816,7 +917,7 @@ export default function ProjectDetail() {
   const pricingInProgress = displayStatus === 'PRICING' || pricingLoading
 
   const handleRequestPricing = async () => {
-    if (!tenantId || !projectId) return
+    if (!isAdmin || !tenantId || !projectId) return
     setPricingLoading(true)
     setMutationError(null)
     setPricingResult(null)
@@ -837,7 +938,7 @@ export default function ProjectDetail() {
         )
       } else if (msg.toLowerCase().includes('training data')) {
         setMutationError(
-          'Configure tenant or project training data first. Add custom data or AI Catalog selections in AI Training, or add project-specific training in the Custom Training Data tab below.'
+          'Configure tenant or project training data first. Add global training under AI Training, or add project-specific training in the Custom Training Data tab below.'
         )
       } else if (msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('billing')) {
         setMutationError(
@@ -927,6 +1028,20 @@ export default function ProjectDetail() {
       projectTotal += amt
     }
   }
+
+  const allTasksForMessaging = calendarTasksData?.tasks?.items ?? tasksData?.tasks?.items ?? []
+  const projectMessageAssigneeIds = [...new Set([
+    ...allTasksForMessaging.flatMap((t) => t.assigneeIds ?? []),
+    ...offersByProject.flatMap((o) => o.assigneeIds ?? []),
+  ])]
+  const projectAssigneeEmails = [
+    ...new Set(
+      projectMessageAssigneeIds
+        .map((id) => teamMembers.find((m) => m.id === id)?.email)
+        .filter(Boolean),
+    ),
+  ]
+
   const trainingTotal = trainingData?.projectTrainingData?.total ?? 0
 
   if (projectLoading) {
@@ -952,7 +1067,7 @@ export default function ProjectDetail() {
         <div className="mb-6 flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
           <Spinner size="sm" />
           <span className="font-medium">AI is pricing this project</span>
-          <span className="text-amber-700 text-sm">Task by task, offer by offer. The project is locked until pricing completes. This may take a few minutes.</span>
+          <span className="text-amber-700 text-sm">Pricing each offer (tasks set the schedule on the calendar). The project is locked until pricing completes. This may take a few minutes.</span>
         </div>
       )}
       {mutationError && (
@@ -1002,34 +1117,26 @@ export default function ProjectDetail() {
               </div>
             )}
             <div className="mt-4 flex flex-wrap gap-3 items-center">
-              {(() => {
-                const allTasks = calendarTasksData?.tasks?.items ?? tasksData?.tasks?.items ?? []
-                const assigneeIds = [...new Set(allTasks.flatMap((t) => t.assigneeIds ?? []))]
-                const projectAssigneeEmails = assigneeIds
-                  .map((id) => teamMembers.find((m) => m.id === id)?.email)
-                  .filter(Boolean)
-                return (
-                  <button
-                    onClick={() => {
-                      if (projectAssigneeEmails.length === 0) return
-                      setEmailModal({
-                        type: 'project',
-                        toEmails: projectAssigneeEmails,
-                        defaultSubject: `Project: ${project?.name ?? 'Estimate'}`,
-                        defaultBody: `Hi,\n\nRegarding project "${project?.name ?? ''}":\n\n`,
-                      })
-                    }}
-                    disabled={projectAssigneeEmails.length === 0}
-                    title={projectAssigneeEmails.length === 0 ? 'No assignees on project tasks' : `Email ${projectAssigneeEmails.length} assignee(s)`}
-                    className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    Email project assignees
-                  </button>
-                )
-              })()}
+              <button
+                type="button"
+                onClick={() => {
+                  if (projectAssigneeEmails.length === 0) return
+                  setEmailModal({
+                    type: 'project',
+                    toEmails: projectAssigneeEmails,
+                    defaultSubject: `Project: ${project?.name ?? 'Estimate'}`,
+                    defaultBody: `Hi,\n\nRegarding project "${project?.name ?? ''}":\n\n`,
+                  })
+                }}
+                disabled={projectAssigneeEmails.length === 0}
+                title={projectAssigneeEmails.length === 0 ? 'No assignees on project tasks or offers' : `Message ${projectAssigneeEmails.length} assignee(s)`}
+                className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Message project assignees
+              </button>
               <button
                 onClick={handleExportProjectPdf}
                 disabled={exportingPdf}
@@ -1089,63 +1196,67 @@ export default function ProjectDetail() {
                       )}
                       Download source PDF
                     </button>
-                    <Link
-                      to="/app/pdf-uploads"
-                      className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-700 hover:text-indigo-800"
-                    >
-                      View training & agent activity
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                      </svg>
-                    </Link>
+                    {isAdmin && (
+                      <Link
+                        to="/app/pdf-uploads"
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-700 hover:text-indigo-800"
+                      >
+                        View training & agent activity
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                        </svg>
+                      </Link>
+                    )}
                   </div>
                 </div>
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-            <div className="flex flex-col items-end gap-1">
-              {(!hasTrainingData || !hasAddress) && !pricingInProgress && (
-                <div className="text-xs text-amber-700 space-y-0.5 text-right">
-                  <p className="font-medium">Pricing checklist:</p>
-                  <ul className="list-none">
-                    {!hasAddress && (
-                      <li>☐ Set project <button type="button" onClick={() => { setMutationError(null); setProjectModal(true) }} className="hover:underline font-medium">address</button></li>
-                    )}
-                    {hasAddress && <li>☑ Address set</li>}
-                    {!hasTrainingData && (
-                      <li>☐ Add <Link to="/app/training" className="hover:underline font-medium">global training</Link> or <button type="button" onClick={() => setActiveTab('training')} className="hover:underline font-medium">project training</button></li>
-                    )}
-                    {hasTrainingData && <li>☑ Training data configured</li>}
-                  </ul>
-                </div>
-              )}
-              <button
-                onClick={() => setPricingConfirmOpen(true)}
-                disabled={pricingInProgress || !hasTrainingData || !hasAddress}
-                title={
-                  pricingInProgress ? 'Pricing in progress…' :
-                  !hasTrainingData ? 'Configure tenant or project training data before requesting pricing.' :
-                  !hasAddress ? 'Set the project address before requesting pricing.' : undefined
-                }
-                className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-2 rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
-              >
-                {pricingLoading ? (
-                  <Spinner size="sm" />
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+            {isAdmin && (
+              <div className="flex flex-col items-end gap-1">
+                {(!hasTrainingData || !hasAddress) && !pricingInProgress && (
+                  <div className="text-xs text-amber-700 space-y-0.5 text-right">
+                    <p className="font-medium">Pricing checklist:</p>
+                    <ul className="list-none">
+                      {!hasAddress && (
+                        <li>☐ Set project <button type="button" onClick={() => { setMutationError(null); setProjectModal(true) }} className="hover:underline font-medium">address</button></li>
+                      )}
+                      {hasAddress && <li>☑ Address set</li>}
+                      {!hasTrainingData && (
+                        <li>☐ Add <Link to="/app/training" className="hover:underline font-medium">global training</Link> or <button type="button" onClick={() => setActiveTab('training')} className="hover:underline font-medium">project training</button></li>
+                      )}
+                      {hasTrainingData && <li>☑ Training data configured</li>}
+                    </ul>
+                  </div>
                 )}
-                {pricingLoading ? (
-                  <>
-                    Pricing…
-                    <span className="text-indigo-500/80 font-normal">(may take a few minutes)</span>
-                  </>
-                ) : (
-                  'Request pricing'
-                )}
-              </button>
-            </div>
+                <button
+                  onClick={() => setPricingConfirmOpen(true)}
+                  disabled={pricingInProgress || !hasTrainingData || !hasAddress}
+                  title={
+                    pricingInProgress ? 'Pricing in progress…' :
+                    !hasTrainingData ? 'Configure tenant or project training data before requesting pricing.' :
+                    !hasAddress ? 'Set the project address before requesting pricing.' : undefined
+                  }
+                  className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-2 rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
+                >
+                  {pricingLoading ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                  {pricingLoading ? (
+                    <>
+                      Pricing…
+                      <span className="text-indigo-500/80 font-normal">(may take a few minutes)</span>
+                    </>
+                  ) : (
+                    'Request pricing'
+                  )}
+                </button>
+              </div>
+            )}
             <button
               onClick={() => { setMutationError(null); setProjectModal(true) }}
               disabled={pricingInProgress}
@@ -1173,21 +1284,27 @@ export default function ProjectDetail() {
       </div>
 
       {/* Project total panel */}
-      <div className="mb-6 p-4 rounded-2xl border border-gray-100 bg-gradient-to-br from-indigo-50 to-white">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-600">Project total</span>
-          <span className="text-xl font-bold text-gray-900">{formatCurrency(projectTotal)}</span>
+      {isAdmin && (
+        <div className="mb-6 p-4 rounded-2xl border border-gray-100 bg-gradient-to-br from-indigo-50 to-white">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-600">Project total</span>
+            <span className="text-xl font-bold text-gray-900">{formatCurrency(projectTotal)}</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-xl w-fit">
         {[
           { key: 'tasks', label: 'Tasks' },
           { key: 'calendar', label: 'Calendar' },
-          { key: 'training', label: 'Custom Training Data' },
-          { key: 'pricingRuns', label: 'Pricing runs' },
-          { key: 'emails', label: 'Emails' },
+          ...(isAdmin
+            ? [
+                { key: 'training', label: 'Custom Training Data' },
+                { key: 'pricingRuns', label: 'Pricing runs' },
+              ]
+            : []),
+          { key: 'emails', label: 'Messages' },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -1285,12 +1402,11 @@ export default function ProjectDetail() {
                         )}
                       </button>
                     </th>
-                    <th className="text-right px-6 py-3">
-                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Task total</span>
-                    </th>
-                    <th className="text-left px-6 py-3 hidden md:table-cell">
-                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Assignees</span>
-                    </th>
+                    {isAdmin && (
+                      <th className="text-right px-6 py-3">
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Task total</span>
+                      </th>
+                    )}
                     <th className="text-left px-6 py-3 hidden md:table-cell">
                       <button
                         onClick={() => {
@@ -1322,16 +1438,11 @@ export default function ProjectDetail() {
                           <p className="text-xs text-gray-400 mt-0.5 max-w-sm truncate">{task.description}</p>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-right font-medium text-gray-900">
-                        {formatCurrency(taskTotals[task.id])}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-gray-500 hidden md:table-cell max-w-32 truncate">
-                        {task.assigneeIds?.length
-                          ? task.assigneeIds
-                              .map((id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id)
-                              .join(', ') || '—'
-                          : '—'}
-                      </td>
+                      {isAdmin && (
+                        <td className="px-6 py-4 text-right font-medium text-gray-900">
+                          {formatCurrency(taskTotals[task.id])}
+                        </td>
+                      )}
                       <td className="px-6 py-4 text-xs text-gray-400 hidden md:table-cell">
                         {task.createdAt ? formatDate(task.createdAt) : '—'}
                       </td>
@@ -1355,7 +1466,7 @@ export default function ProjectDetail() {
                                 }
                               }}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                              title="Email task assignees"
+                              title="Message task assignees"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -1405,7 +1516,7 @@ export default function ProjectDetail() {
       )}
 
       {/* Training data tab */}
-      {activeTab === 'pricingRuns' && (
+      {isAdmin && activeTab === 'pricingRuns' && (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-6 py-4 border-b border-gray-100">
             <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1 min-w-0">
@@ -1432,6 +1543,17 @@ export default function ProjectDetail() {
                 )}
               </form>
             </div>
+            {projectPricingRuns.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setDeleteAllPricingRunsOpen(true)}
+                disabled={pricingInProgress}
+                title={pricingInProgress ? 'Project is locked during pricing' : undefined}
+                className="flex-shrink-0 px-3 py-2 text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-red-50"
+              >
+                Delete all
+              </button>
+            )}
           </div>
           <div className="p-6">
             {pricingRunsLoading ? (
@@ -1439,7 +1561,11 @@ export default function ProjectDetail() {
             ) : projectPricingRuns.length === 0 ? (
               <EmptyState
                 title="No pricing runs yet"
-                description="Request pricing using the button above. Each run will be recorded here so you can see what the AI agent did."
+                description={
+                  isAdmin
+                    ? 'Request pricing using the button above. Each run will be recorded here so you can see what the AI agent did.'
+                    : 'An organization admin can run pricing from the project header. Completed runs will appear here.'
+                }
                 icon={
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1478,7 +1604,7 @@ export default function ProjectDetail() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-6 py-4 border-b border-gray-100">
             <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1 min-w-0">
               <h2 className="text-base font-semibold text-gray-900">
-                Email history <span className="text-gray-400 font-normal text-sm ml-1">({filteredEmails.length}{emailSearch ? ` of ${projectEmails.length}` : ''})</span>
+                Message history <span className="text-gray-400 font-normal text-sm ml-1">({filteredEmails.length}{emailSearch ? ` of ${projectEmails.length}` : ''})</span>
               </h2>
               <form
                 onSubmit={(e) => { e.preventDefault(); setEmailSearch(emailSearchInput) }}
@@ -1504,8 +1630,8 @@ export default function ProjectDetail() {
           <div className="p-6">
             {projectEmails.length === 0 ? (
               <EmptyState
-                title="No emails sent yet"
-                description="Use the &quot;Email project assignees&quot; button above to send an email. All emails sent for this project will appear here."
+                title="No messages sent yet"
+                description="Use the &quot;Message project assignees&quot; button above when someone is assigned to a task or an offer. All messages sent for this project will appear here."
                 icon={
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -1514,7 +1640,7 @@ export default function ProjectDetail() {
               />
             ) : filteredEmails.length === 0 ? (
               <EmptyState
-                title="No matching emails"
+                title="No matching messages"
                 description="Try a different search term."
                 icon={
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -1551,7 +1677,7 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {activeTab === 'training' && (
+      {isAdmin && activeTab === 'training' && (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
             <h2 className="text-base font-semibold text-gray-900">
@@ -1585,7 +1711,7 @@ export default function ProjectDetail() {
                     >
                       + Add project data
                     </button>
-                    {!hasTenantTraining && !hasTenantCatalog && (
+                    {!hasTenantTraining && (
                       <Link
                         to="/app/training"
                         className="text-xs text-gray-500 hover:text-indigo-600"
@@ -1613,9 +1739,13 @@ export default function ProjectDetail() {
                           <p className="text-sm font-medium text-gray-800 mb-1">{entry.description}</p>
                         )}
                         {entry.entries?.length ? (
-                          <div className="text-xs text-gray-400 font-mono bg-gray-50 rounded-lg p-2 space-y-1">
+                          <div className="text-xs text-gray-600 bg-gray-50 rounded-lg p-2 space-y-1.5">
                             {entry.entries.slice(0, 3).map((e, i) => (
-                              <div key={i} className="line-clamp-1">{e.key}: {e.value}</div>
+                              <div key={i} className="line-clamp-2 break-words">
+                                <span className="text-gray-800">{e.key}</span>
+                                <span className="text-gray-400 mx-1">·</span>
+                                <span className="font-mono text-gray-600 tabular-nums">{e.value}</span>
+                              </div>
                             ))}
                             {entry.entries.length > 3 && <div className="text-gray-300">+{entry.entries.length - 3} more</div>}
                           </div>
@@ -1658,13 +1788,18 @@ export default function ProjectDetail() {
 
       {/* Project edit modal */}
       <Modal open={projectModal} onClose={() => setProjectModal(false)} title="Edit project">
-        <ProjectForm
-          initial={{ ...project, status: displayStatus }}
-          suggestedStatuses={suggestedStatuses}
-          onSubmit={(input) => updateProject({ variables: { id: project.id, tenantId, input } })}
-          loading={updatingProject}
-          error={mutationError}
-        />
+        {projectModal && project && (
+          <ProjectForm
+            key={project.id}
+            initial={{ ...project, status: displayStatus }}
+            suggestedStatuses={suggestedStatuses}
+            teamMembers={teamMembers}
+            isAdmin={user?.role === 'ADMIN'}
+            onSubmit={(input) => updateProject({ variables: { id: project.id, tenantId, input } })}
+            loading={updatingProject}
+            error={mutationError}
+          />
+        )}
       </Modal>
 
       {/* Task modals */}
@@ -1672,11 +1807,13 @@ export default function ProjectDetail() {
         open={!!taskModal}
         onClose={() => setTaskModal(null)}
         title={taskModal?.mode === 'create' ? 'New task' : 'Edit task'}
+        maxWidth="max-w-xl"
       >
         {taskModal && (
           <TaskForm
             initial={taskModal.task}
             teamMembers={teamMembers}
+            offers={taskModalOffers}
             onSubmit={
               taskModal.mode === 'create'
                 ? (input) => createTask({ variables: { input: { ...input, projectId, tenantId } } })
@@ -1690,19 +1827,42 @@ export default function ProjectDetail() {
 
       {/* Training modal */}
       <Modal
-        open={!!trainingModal}
+        open={!!trainingModal && isAdmin}
         onClose={() => setTrainingModal(null)}
         title={trainingModal?.mode === 'create' ? 'Add training data' : 'Edit training data'}
         maxWidth="max-w-2xl"
       >
         {trainingModal && (
           <TrainingDataForm
+            key={trainingModal.mode === 'edit' ? trainingModal.entry.id : 'create'}
             initial={trainingModal.entry}
             scopeLabel="project training data"
             onSubmit={
               trainingModal.mode === 'create'
-                ? (input) => createTraining({ variables: { input: { tenantId, projectId, entries: input.entries, description: input.description } } })
-                : (input) => updateTraining({ variables: { id: trainingModal.entry.id, tenantId, input: { entries: input.entries, description: input.description } } })
+                ? (input) =>
+                    createTraining({
+                      variables: {
+                        input: {
+                          tenantId,
+                          projectId,
+                          entries: input.entries ?? [],
+                          pricingFacts: input.pricingFacts ?? [],
+                          description: input.description,
+                        },
+                      },
+                    })
+                : (input) =>
+                    updateTraining({
+                      variables: {
+                        id: trainingModal.entry.id,
+                        tenantId,
+                        input: {
+                          entries: input.entries ?? [],
+                          pricingFacts: input.pricingFacts ?? [],
+                          description: input.description,
+                        },
+                      },
+                    })
             }
             loading={creatingTraining || updatingTraining}
             error={mutationError}
@@ -1739,7 +1899,7 @@ export default function ProjectDetail() {
 
       {/* Delete pricing run confirm */}
       <ConfirmDialog
-        open={!!deletePricingRunTarget}
+        open={!!deletePricingRunTarget && isAdmin}
         onClose={() => setDeletePricingRunTarget(null)}
         loading={deletingPricingRun}
         title="Delete pricing run?"
@@ -1752,9 +1912,21 @@ export default function ProjectDetail() {
         }}
       />
 
+      <ConfirmDialog
+        open={deleteAllPricingRunsOpen && isAdmin}
+        onClose={() => setDeleteAllPricingRunsOpen(false)}
+        loading={deletingAllPricingRuns}
+        title="Delete all pricing runs?"
+        message={`This will permanently remove all ${projectPricingRuns.length} pricing run record${projectPricingRuns.length !== 1 ? 's' : ''} for this project. Your offers and prices will not be changed.`}
+        confirmLabel="Delete all"
+        onConfirm={() => {
+          deleteAllPricingRuns({ variables: { projectId, tenantId } })
+        }}
+      />
+
       {/* Pricing confirm */}
       <ConfirmDialog
-        open={pricingConfirmOpen}
+        open={pricingConfirmOpen && isAdmin}
         onClose={() => setPricingConfirmOpen(false)}
         loading={pricingLoading}
         title="Request pricing?"

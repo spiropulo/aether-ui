@@ -32,20 +32,35 @@ function ProfileForm({ initial, onSubmit, loading, error, isAdmin }) {
     displayName: initial?.displayName ?? '',
     email: initial?.email ?? '',
     phoneNumber: initial?.phoneNumber ?? '',
+    hourlyLaborRate: initial?.hourlyLaborRate != null ? String(initial.hourlyLaborRate) : '',
     role: initial?.role ?? 'MEMBER',
     status: initial?.status ?? 'ACTIVE',
   })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
   const handleSubmit = (e) => {
     e.preventDefault()
-    onSubmit({
+    const input = {
       firstName: form.firstName.trim() || null,
       lastName: form.lastName.trim() || null,
       displayName: form.displayName.trim() || null,
       email: form.email.trim(),
       phoneNumber: form.phoneNumber.trim() || null,
       ...(isAdmin ? { role: form.role, status: form.status } : {}),
-    })
+    }
+    if (isAdmin) {
+      const hr = form.hourlyLaborRate.trim()
+      if (hr === '') {
+        if (initial?.hourlyLaborRate != null) {
+          input.clearHourlyLaborRate = true
+        }
+      } else {
+        const n = parseFloat(hr)
+        if (!Number.isNaN(n) && n >= 0) {
+          input.hourlyLaborRate = n
+        }
+      }
+    }
+    onSubmit(input)
   }
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -72,6 +87,22 @@ function ProfileForm({ initial, onSubmit, loading, error, isAdmin }) {
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Phone number</label>
         <input name="phoneNumber" value={form.phoneNumber} onChange={handleChange} placeholder="+1 555 000 0000" className={inputClass} />
       </div>
+      {isAdmin && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Hourly labor rate (USD)</label>
+          <input
+            name="hourlyLaborRate"
+            type="number"
+            min={0}
+            step={0.01}
+            value={form.hourlyLaborRate}
+            onChange={handleChange}
+            placeholder="e.g. 85"
+            className={inputClass}
+          />
+          <p className="mt-1 text-xs text-gray-500">Used by the Estimator for labor lines. Clear the field and save to remove.</p>
+        </div>
+      )}
       {isAdmin && (
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -231,6 +262,17 @@ export default function UserDetail() {
           {[
             { label: 'Email', value: profile.email },
             { label: 'Phone', value: profile.phoneNumber || '—' },
+            ...(isAdmin
+              ? [
+                  {
+                    label: 'Hourly rate',
+                    value:
+                      profile.hourlyLaborRate != null
+                        ? `$${Number(profile.hourlyLaborRate).toFixed(2)}/hr`
+                        : '—',
+                  },
+                ]
+              : []),
             { label: 'Last login', value: formatDate(profile.lastLoginAt) },
             { label: 'Member since', value: formatDate(profile.createdAt) },
           ].map(({ label, value }) => (

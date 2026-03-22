@@ -19,6 +19,7 @@ export const LOGIN = gql`
         loggedIn
         lastLoginAt
         lastLogoutAt
+        hourlyLaborRate
       }
     }
   }
@@ -42,6 +43,7 @@ export const REGISTER = gql`
         loggedIn
         lastLoginAt
         lastLogoutAt
+        hourlyLaborRate
       }
     }
   }
@@ -60,8 +62,8 @@ export const LOGOUT = gql`
 `
 
 export const ADD_MEMBER = gql`
-  mutation AddMember($input: AddMemberInput!, $organizationName: String!) {
-    addMember(input: $input, organizationName: $organizationName) {
+  mutation AddMember($callerId: ID!, $tenantId: String!, $input: AddMemberInput!, $organizationName: String!) {
+    addMember(callerId: $callerId, tenantId: $tenantId, input: $input, organizationName: $organizationName) {
       id
       username
       email
@@ -71,6 +73,7 @@ export const ADD_MEMBER = gql`
       role
       status
       createdAt
+      hourlyLaborRate
     }
   }
 `

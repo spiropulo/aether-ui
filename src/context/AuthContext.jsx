@@ -54,7 +54,7 @@ export function AuthProvider({ children }) {
           mutation: LOGOUT,
           variables: { id: user.id, tenantId: user.tenantId },
         })
-      } catch (_) {}
+      } catch { /* ignore logout mutation errors */ }
     }
     localStorage.removeItem('aether_token')
     localStorage.removeItem('aether_user')

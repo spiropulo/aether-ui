@@ -17,6 +17,7 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'max-
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">{title}</h2>
           <button
+            type="button"
             onClick={onClose}
             className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
           >

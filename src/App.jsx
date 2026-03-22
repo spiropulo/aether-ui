@@ -104,15 +104,24 @@ export default function App() {
               }
             >
               <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="estimate" element={<EstimateFromPdf />} />
-              <Route path="pdf-uploads" element={<PdfUploads />} />
+              <Route
+                path="estimate"
+                element={<AdminRoute><EstimateFromPdf /></AdminRoute>}
+              />
+              <Route
+                path="pdf-uploads"
+                element={<AdminRoute><PdfUploads /></AdminRoute>}
+              />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="projects" element={<Projects />} />
               <Route path="projects/:projectId" element={<ProjectDetail />} />
               <Route path="projects/:projectId/tasks/:taskId" element={<TaskDetail />} />
               <Route path="team" element={<Team />} />
               <Route path="team/:userId" element={<UserDetail />} />
-              <Route path="training" element={<Training />} />
+              <Route
+                path="training"
+                element={<AdminRoute><Training /></AdminRoute>}
+              />
               <Route path="settings" element={<Settings />} />
               <Route
                 path="admin/tenants"

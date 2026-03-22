@@ -17,7 +17,7 @@ const PAGE_SIZE = 20
 const inputClass =
   'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition'
 
-function InviteForm({ organizationName, onDone, onError, error }) {
+function InviteForm({ callerId, tenantId, organizationName, isFirstMemberForTenant = false, onDone, onError, error }) {
   const [form, setForm] = useState({
     username: '',
     email: '',
@@ -25,7 +25,8 @@ function InviteForm({ organizationName, onDone, onError, error }) {
     firstName: '',
     lastName: '',
     displayName: '',
-    role: 'MEMBER',
+    hourlyLaborRate: '',
+    role: isFirstMemberForTenant ? 'ADMIN' : 'MEMBER',
   })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
 
@@ -38,6 +39,8 @@ function InviteForm({ organizationName, onDone, onError, error }) {
     e.preventDefault()
     addMember({
       variables: {
+        callerId,
+        tenantId,
         input: {
           username: form.username.trim(),
           email: form.email.trim(),
@@ -45,6 +48,13 @@ function InviteForm({ organizationName, onDone, onError, error }) {
           firstName: form.firstName.trim() || undefined,
           lastName: form.lastName.trim() || undefined,
           displayName: form.displayName.trim() || undefined,
+          hourlyLaborRate:
+            form.hourlyLaborRate.trim() === ''
+              ? undefined
+              : (() => {
+                  const n = parseFloat(form.hourlyLaborRate)
+                  return Number.isNaN(n) || n < 0 ? undefined : n
+                })(),
           role: form.role,
         },
         organizationName: organizationName.trim(),
@@ -82,12 +92,36 @@ function InviteForm({ organizationName, onDone, onError, error }) {
         <input name="password" type="password" required value={form.password} onChange={handleChange} placeholder="••••••••" className={inputClass} />
       </div>
       <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Hourly labor rate (USD, optional)</label>
+        <input
+          name="hourlyLaborRate"
+          type="number"
+          min={0}
+          step={0.01}
+          value={form.hourlyLaborRate}
+          onChange={handleChange}
+          placeholder="e.g. 75"
+          className={inputClass}
+        />
+      </div>
+      <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
-        <select name="role" value={form.role} onChange={handleChange} className={inputClass}>
+        <select
+          name="role"
+          value={form.role}
+          onChange={handleChange}
+          disabled={isFirstMemberForTenant}
+          className={`${inputClass} ${isFirstMemberForTenant ? 'opacity-80 cursor-not-allowed' : ''}`}
+        >
           <option value="MEMBER">Member</option>
           <option value="ADMIN">Admin</option>
           <option value="VIEWER">Viewer</option>
         </select>
+        {isFirstMemberForTenant && (
+          <p className="mt-1.5 text-xs text-gray-500">
+            The first person in your organization is always an admin.
+          </p>
+        )}
       </div>
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
@@ -112,6 +146,7 @@ function formatDate(d) {
 export default function Team() {
   const { user } = useAuth()
   const tenantId = user?.tenantId
+  const isAdmin = user?.role === 'ADMIN'
 
   const [offset, setOffset] = useState(0)
   const [search, setSearch] = useState('')
@@ -146,7 +181,7 @@ export default function Team() {
           <h1 className="text-2xl font-bold text-gray-900">Team</h1>
           <p className="text-sm text-gray-500 mt-1">Manage your organization&apos;s members</p>
         </div>
-        {(user?.role === 'ADMIN' || user?.role === 'MEMBER') && (
+        {user?.role === 'ADMIN' && (
           <button
             onClick={() => { setMutationError(null); setInviteModal(true) }}
             className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
@@ -183,9 +218,15 @@ export default function Team() {
         ) : users.length === 0 ? (
           <EmptyState
             title="No members found"
-            description={search ? 'Try a different search term.' : 'Add your first team member to get started.'}
+            description={
+              search
+                ? 'Try a different search term.'
+                : user?.role === 'ADMIN'
+                  ? 'Add your first team member to get started.'
+                  : 'Ask an organization admin to invite members.'
+            }
             action={
-              !search && (user?.role === 'ADMIN' || user?.role === 'MEMBER') ? (
+              !search && user?.role === 'ADMIN' ? (
                 <button
                   onClick={() => { setMutationError(null); setInviteModal(true) }}
                   className="text-sm font-semibold text-indigo-600 hover:text-indigo-500"
@@ -207,6 +248,9 @@ export default function Team() {
                 <tr className="border-b border-gray-100 bg-gray-50/50">
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Username</th>
+                  {isAdmin && (
+                    <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">$/hr</th>
+                  )}
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Status</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Last login</th>
@@ -230,6 +274,11 @@ export default function Team() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-gray-500 hidden md:table-cell">@{u.username}</td>
+                    {isAdmin && (
+                      <td className="px-6 py-4 text-gray-600 text-xs hidden sm:table-cell">
+                        {u.hourlyLaborRate != null ? `$${Number(u.hourlyLaborRate).toFixed(0)}` : '—'}
+                      </td>
+                    )}
                     <td className="px-6 py-4">
                       <Badge variant={u.role} label={u.role} />
                     </td>
@@ -274,12 +323,18 @@ export default function Team() {
       </div>
 
       <Modal open={inviteModal} onClose={() => setInviteModal(false)} title="Add team member">
-        <InviteForm
-          organizationName={user?.organizationName ?? ''}
-          onDone={() => { setInviteModal(false); setMutationError(null); refetch() }}
-          onError={setMutationError}
-          error={mutationError}
-        />
+        {inviteModal && user?.id && tenantId && (
+          <InviteForm
+            key={`invite-${total}`}
+            callerId={user.id}
+            tenantId={tenantId}
+            organizationName={user?.organizationName ?? ''}
+            isFirstMemberForTenant={total === 0}
+            onDone={() => { setInviteModal(false); setMutationError(null); refetch() }}
+            onError={setMutationError}
+            error={mutationError}
+          />
+        )}
       </Modal>
 
       <ConfirmDialog

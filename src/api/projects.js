@@ -2,6 +2,15 @@ import { gql } from '@apollo/client/core'
 
 // ─── Projects ────────────────────────────────────────────────────────────────
 
+/** Canonical workflow statuses (must match aether-app ProjectGraphqlController.SUGGESTED_STATUSES). */
+export const PROJECT_STATUS_OPTIONS = [
+  'Not Started',
+  'In Progress',
+  'On Hold',
+  'Completed',
+  'Cancelled',
+]
+
 export const GET_SUGGESTED_PROJECT_STATUSES = gql`
   query GetSuggestedProjectStatuses {
     suggestedProjectStatuses
@@ -55,6 +64,10 @@ export const GET_PROJECT = gql`
       country
       createdAt
       updatedAt
+      laborRateOverrides {
+        userProfileId
+        hourlyRate
+      }
     }
   }
 `
@@ -106,6 +119,10 @@ export const UPDATE_PROJECT = gql`
       postalCode
       country
       updatedAt
+      laborRateOverrides {
+        userProfileId
+        hourlyRate
+      }
     }
   }
 `
@@ -208,6 +225,7 @@ export const GET_OFFERS_BY_PROJECT = gql`
       quantity
       unitCost
       total
+      assigneeIds
     }
   }
 `
@@ -306,6 +324,12 @@ export const GET_PROJECT_PRICING_RUNS = gql`
 export const DELETE_PRICING_RUN = gql`
   mutation DeletePricingRun($id: ID!, $projectId: String!, $tenantId: String!) {
     deletePricingRun(id: $id, projectId: $projectId, tenantId: $tenantId)
+  }
+`
+
+export const DELETE_ALL_PRICING_RUNS_FOR_PROJECT = gql`
+  mutation DeleteAllPricingRunsForProject($projectId: String!, $tenantId: String!) {
+    deleteAllPricingRunsForProject(projectId: $projectId, tenantId: $tenantId)
   }
 `
 

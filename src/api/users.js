@@ -30,6 +30,7 @@ export const GET_USER_PROFILES = gql`
         lastLoginAt
         lastLogoutAt
         createdAt
+        hourlyLaborRate
       }
       total
       hasNext
@@ -58,6 +59,7 @@ export const GET_USER_PROFILE = gql`
       lastLogoutAt
       createdAt
       updatedAt
+      hourlyLaborRate
     }
   }
 `
@@ -79,6 +81,7 @@ export const UPDATE_PROFILE = gql`
       loggedIn
       lastLogoutAt
       updatedAt
+      hourlyLaborRate
     }
   }
 `

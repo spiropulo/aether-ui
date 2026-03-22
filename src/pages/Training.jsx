@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation } from '@apollo/client/react'
 import { useAuth } from '../context/AuthContext'
@@ -8,18 +8,11 @@ import {
   UPDATE_TRAINING,
   DELETE_TRAINING,
 } from '../api/training'
-import {
-  GET_PRETRAIN_CATALOG,
-  GET_TENANT_SELECTED_PRETRAIN,
-  SELECT_PRETRAIN_DATA,
-  DESELECT_PRETRAIN_DATA,
-} from '../api/pretrain'
 import Modal from '../components/ui/Modal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
 import Spinner from '../components/ui/Spinner'
 import Pagination from '../components/ui/Pagination'
-import Alert from '../components/ui/Alert'
 import TrainingDataForm from '../components/TrainingDataForm'
 
 const PAGE_SIZE = 20
@@ -42,19 +35,19 @@ function HierarchyCard() {
           <h3 className="text-sm font-semibold text-gray-900 mb-2">How pricing data works</h3>
           <ol className="text-sm text-gray-700 space-y-1 list-decimal list-inside">
             <li>
-              <strong>Project-level</strong> (highest) — Overrides only the keys it defines for that project
+              <strong>Project-level</strong> (highest) — Overrides global training for that project
             </li>
             <li>
-              <strong>Global</strong> (this page) — Base for all projects in your organization
+              <strong>Global</strong> (this page) — Base training for all projects in your organization
             </li>
             <li>
-              <strong>AI Catalog</strong> (optional) — Fallback when nothing else applies
+              <strong>Structured facts</strong> — Extracted pricing signals (rates, units, materials); used with your key/value entries
             </li>
           </ol>
           {expanded && (
             <div className="mt-3 p-3 rounded-xl bg-white/80 border border-indigo-100">
               <p className="text-xs text-gray-600">
-                <strong>Example:</strong> Global has wood=$100, nails=$2. Project adds wood=$150. Result: wood=$150, nails=$2.
+                <strong>Example:</strong> Use “Teach your AI how you price” to extract structured facts (rates, units, materials). Project-level training overrides global when both apply to the same scope.
               </p>
             </div>
           )}
@@ -156,7 +149,7 @@ function CustomDataTab({ tenantId }) {
             description={
               search
                 ? 'No results matched your search.'
-                : 'Set up pricing in 3 steps: (1) Add global custom data here, (2) Optionally add AI Catalog datasets in the next tab, (3) Add project-specific overrides when editing a project.'
+                : 'Add global training here, then add project-specific overrides on each project when you need different pricing for that job.'
             }
             action={
               !search && (
@@ -201,16 +194,16 @@ function CustomDataTab({ tenantId }) {
                           <p className="text-xs text-gray-400">Added {formatDate(entry.createdAt)}</p>
                         </div>
                       </div>
-                      <div className="bg-gray-50 rounded-xl p-3 ml-11 space-y-1">
-                        {(entry.entries ?? []).map((e, i) => (
-                          <p key={i} className="text-xs text-gray-600 font-mono">
-                            <span className="text-gray-500">{e.key}:</span> {e.value}
-                          </p>
-                        ))}
-                        {(!entry.entries || entry.entries.length === 0) && (
-                          <p className="text-xs text-gray-400 italic">No key-value pairs</p>
-                        )}
-                      </div>
+                      {(entry.entries ?? []).length > 0 && (
+                        <div className="bg-gray-50 rounded-xl p-3 ml-11 space-y-2">
+                          {(entry.entries ?? []).map((e, i) => (
+                            <div key={i} className="text-xs text-gray-700">
+                              <p className="text-gray-800 break-words leading-snug">{e.key}</p>
+                              <p className="text-gray-500 font-mono tabular-nums mt-0.5">{e.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button
@@ -249,12 +242,34 @@ function CustomDataTab({ tenantId }) {
       >
         {modal && (
           <TrainingDataForm
+            key={modal.mode === 'edit' ? modal.entry.id : 'create'}
             initial={modal.entry}
             scopeLabel="training data"
             onSubmit={
               modal.mode === 'create'
-                ? (input) => createTraining({ variables: { input: { tenantId, entries: input.entries, description: input.description } } })
-                : (input) => updateTraining({ variables: { id: modal.entry.id, tenantId, input: { entries: input.entries, description: input.description } } })
+                ? (input) =>
+                    createTraining({
+                      variables: {
+                        input: {
+                          tenantId,
+                          entries: input.entries ?? [],
+                          pricingFacts: input.pricingFacts ?? [],
+                          description: input.description,
+                        },
+                      },
+                    })
+                : (input) =>
+                    updateTraining({
+                      variables: {
+                        id: modal.entry.id,
+                        tenantId,
+                        input: {
+                          entries: input.entries ?? [],
+                          pricingFacts: input.pricingFacts ?? [],
+                          description: input.description,
+                        },
+                      },
+                    })
             }
             loading={creating || updating}
             error={mutationError}
@@ -274,257 +289,11 @@ function CustomDataTab({ tenantId }) {
   )
 }
 
-// ─── AI Catalog tab ───────────────────────────────────────────────────────────
-
-function CatalogTab({ tenantId }) {
-  const [catalogOffset, setCatalogOffset] = useState(0)
-  const [catalogSearch, setCatalogSearch] = useState('')
-  const [catalogSearchInput, setCatalogSearchInput] = useState('')
-  const [pendingId, setPendingId] = useState(null)
-  const [actionError, setActionError] = useState(null)
-  const selectionIds = useRef({})
-
-  const { data: catalogData, loading: catalogLoading } = useQuery(GET_PRETRAIN_CATALOG, {
-    variables: {
-      page: { limit: PAGE_SIZE, offset: catalogOffset },
-      search: catalogSearch || undefined,
-    },
-    fetchPolicy: 'cache-and-network',
-  })
-
-  const { data: selectedData, refetch: refetchSelected } = useQuery(GET_TENANT_SELECTED_PRETRAIN, {
-    variables: { tenantId },
-    skip: !tenantId,
-    fetchPolicy: 'cache-and-network',
-  })
-
-  const [selectEntry] = useMutation(SELECT_PRETRAIN_DATA)
-  const [deselectEntry] = useMutation(DESELECT_PRETRAIN_DATA)
-
-  const catalogEntries = catalogData?.pretrainCatalog?.items ?? []
-  const catalogTotal = catalogData?.pretrainCatalog?.total ?? 0
-  const selectedEntries = selectedData?.tenantSelectedPretrainData ?? []
-  const selectedIds = useMemo(() => new Set(selectedEntries.map((e) => e.id)), [selectedEntries])
-
-  const handleToggle = async (pretrainDataId) => {
-    setPendingId(pretrainDataId)
-    setActionError(null)
-    try {
-      if (selectedIds.has(pretrainDataId)) {
-        let selId = selectionIds.current[pretrainDataId]
-        if (!selId) {
-          // Re-select to retrieve the existing selection ID (assumed idempotent)
-          const r = await selectEntry({ variables: { pretrainDataId, tenantId } })
-          selId = r.data.selectPretrainData.id
-          selectionIds.current[pretrainDataId] = selId
-        }
-        await deselectEntry({ variables: { id: selId, tenantId } })
-        delete selectionIds.current[pretrainDataId]
-      } else {
-        const r = await selectEntry({ variables: { pretrainDataId, tenantId } })
-        selectionIds.current[pretrainDataId] = r.data.selectPretrainData.id
-      }
-      await refetchSelected()
-    } catch (e) {
-      setActionError(e.message)
-    } finally {
-      setPendingId(null)
-    }
-  }
-
-  const handleCatalogSearch = (e) => {
-    e.preventDefault()
-    setCatalogSearch(catalogSearchInput)
-    setCatalogOffset(0)
-  }
-
-  return (
-    <div className="space-y-8">
-      {actionError && <Alert message={actionError} />}
-
-      <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
-        <p className="text-sm text-gray-600">
-          <strong>AI Catalog</strong> provides pre-trained pricing profiles (Economy, Balanced, Whiteglove). Use as a fallback when your custom data doesn&apos;t define a value. Your custom data always overrides catalog values for the same keys.
-        </p>
-      </div>
-
-      {/* Active selections */}
-      <div>
-        <div className="flex items-center gap-3 mb-4">
-          <h2 className="text-base font-semibold text-gray-900">Active selections</h2>
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700">
-            {selectedEntries.length} selected
-          </span>
-        </div>
-
-        {selectedEntries.length === 0 ? (
-          <div className="bg-white border border-dashed border-gray-200 rounded-2xl p-8 text-center">
-            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              </svg>
-            </div>
-            <p className="text-sm font-medium text-gray-600 mb-1">No catalog datasets selected</p>
-            <p className="text-xs text-gray-400">Browse the catalog below and click <strong>Add</strong> to activate a dataset for your organization.</p>
-          </div>
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {selectedEntries.map((entry) => (
-              <div key={entry.id} className="bg-white border border-violet-200 rounded-2xl p-4 flex items-start justify-between gap-3 group">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-6 h-6 rounded-md bg-violet-100 flex items-center justify-center flex-shrink-0">
-                      <svg className="w-3.5 h-3.5 text-violet-600" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                      </svg>
-                    </div>
-                    <p className="text-sm font-semibold text-gray-900 truncate">{entry.title}</p>
-                  </div>
-                  <p className="text-xs text-gray-400 truncate ml-8">{entry.fileName}</p>
-                </div>
-                <button
-                  onClick={() => handleToggle(entry.id)}
-                  disabled={pendingId === entry.id}
-                  className="flex-shrink-0 p-1.5 rounded-lg text-gray-300 group-hover:text-gray-400 hover:!text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
-                  title="Remove from tenant"
-                >
-                  {pendingId === entry.id ? (
-                    <Spinner size="sm" />
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Catalog browser */}
-      <div>
-        <h2 className="text-base font-semibold text-gray-900 mb-4">Browse catalog</h2>
-
-        <form onSubmit={handleCatalogSearch} className="flex gap-2 mb-4">
-          <input
-            value={catalogSearchInput}
-            onChange={(e) => setCatalogSearchInput(e.target.value)}
-            placeholder="Search catalog by title…"
-            className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition"
-          />
-          <button type="submit" className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl transition-colors">
-            Search
-          </button>
-          {catalogSearch && (
-            <button
-              type="button"
-              onClick={() => { setCatalogSearch(''); setCatalogSearchInput(''); setCatalogOffset(0) }}
-              className="px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700"
-            >
-              Clear
-            </button>
-          )}
-        </form>
-
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          {catalogLoading ? (
-            <div className="flex justify-center py-16"><Spinner /></div>
-          ) : catalogEntries.length === 0 ? (
-            <EmptyState
-              title="No datasets found"
-              description={catalogSearch ? 'No catalog entries matched your search.' : 'No pre-trained datasets are available yet.'}
-              icon={
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                </svg>
-              }
-            />
-          ) : (
-            <>
-              <div className="divide-y divide-gray-50">
-                {catalogEntries.map((entry) => {
-                  const isSelected = selectedIds.has(entry.id)
-                  const isPending = pendingId === entry.id
-                  return (
-                    <div
-                      key={entry.id}
-                      className={`px-6 py-5 transition-colors ${isSelected ? 'bg-violet-50/60' : 'hover:bg-gray-50/50'}`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            {isSelected && (
-                              <svg className="w-4 h-4 text-violet-500 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                              </svg>
-                            )}
-                            <p className="text-sm font-semibold text-gray-900">{entry.title}</p>
-                          </div>
-                          <p className="text-xs text-gray-400 mb-3 ml-6">{entry.fileName}</p>
-                          <div className="bg-gray-50 rounded-xl p-3">
-                            <p className="text-xs text-gray-500 font-mono leading-relaxed line-clamp-3">
-                              {entry.trainingContent}
-                            </p>
-                            {entry.trainingContent.length > 200 && (
-                              <p className="text-xs text-gray-400 mt-1">{entry.trainingContent.length} characters</p>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleToggle(entry.id)}
-                          disabled={isPending}
-                          className={`flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl transition-colors disabled:opacity-50 ${
-                            isSelected
-                              ? 'bg-violet-100 text-violet-700 hover:bg-red-50 hover:text-red-600'
-                              : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                          }`}
-                        >
-                          {isPending ? (
-                            <Spinner size="sm" />
-                          ) : isSelected ? (
-                            <>
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                              </svg>
-                              Added
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                              </svg>
-                              Add
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-              {catalogTotal > PAGE_SIZE && (
-                <Pagination offset={catalogOffset} limit={PAGE_SIZE} total={catalogTotal} onPageChange={setCatalogOffset} />
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Training() {
   const { user } = useAuth()
   const tenantId = user?.tenantId
-  const [activeTab, setActiveTab] = useState('custom')
-
-  const tabs = [
-    { id: 'custom', label: 'Custom Training Data' },
-    { id: 'catalog', label: 'AI Catalog' },
-  ]
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto">
@@ -537,25 +306,7 @@ export default function Training() {
 
       <HierarchyCard />
 
-      {/* Tab switcher */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit mb-8">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab.id
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === 'custom' && <CustomDataTab tenantId={tenantId} />}
-      {activeTab === 'catalog' && <CatalogTab tenantId={tenantId} />}
+      <CustomDataTab tenantId={tenantId} />
     </div>
   )
 }

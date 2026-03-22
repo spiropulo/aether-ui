@@ -11,32 +11,19 @@ import {
   CREATE_OFFER,
   UPDATE_OFFER,
   DELETE_OFFER,
-  SEND_PROJECT_EMAIL,
 } from '../api/projects'
 import { GET_USER_PROFILES } from '../api/users'
 import AssigneeSelector from '../components/ui/AssigneeSelector'
-import EmailComposeModal from '../components/EmailComposeModal'
 import Modal from '../components/ui/Modal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
 import Spinner from '../components/ui/Spinner'
 import Alert from '../components/ui/Alert'
+import CalendarColorSwatchSelect from '../components/ui/CalendarColorSwatchSelect'
+import { CALENDAR_COLORS } from '../components/ui/calendarColors'
 
 const inputClass =
   'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition'
-
-const UOM_OPTIONS = ['Each', 'kg', 'Hour', 'Day', 'Week', 'Month', 'Lot', 'LF', 'SF', 'CY']
-
-const CALENDAR_COLORS = [
-  { value: '#6366F1', label: 'Indigo' },
-  { value: '#3B82F6', label: 'Blue' },
-  { value: '#10B981', label: 'Emerald' },
-  { value: '#F59E0B', label: 'Amber' },
-  { value: '#EF4444', label: 'Red' },
-  { value: '#8B5CF6', label: 'Violet' },
-  { value: '#EC4899', label: 'Pink' },
-  { value: '#14B8A6', label: 'Teal' },
-]
 
 function formatCurrency(v) {
   if (v == null) return '—'
@@ -149,7 +136,7 @@ function TaskCalendar({ task, onUpdate, updating }) {
                 className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none disabled:opacity-50"
               />
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <label className="text-xs font-medium text-gray-500">End</label>
               <input
                 type="date"
@@ -158,25 +145,11 @@ function TaskCalendar({ task, onUpdate, updating }) {
                 disabled={updating}
                 className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none disabled:opacity-50"
               />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500">Color</span>
-              <div className="flex gap-1">
-                {CALENDAR_COLORS.map((c) => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    onClick={() => handleColorChange(c.value)}
-                    disabled={updating}
-                    className={`w-6 h-6 rounded-md border-2 transition-all disabled:opacity-50 ${
-                      (task?.calendarColor || CALENDAR_COLORS[0].value) === c.value ? 'border-gray-900 scale-110' : 'border-transparent hover:border-gray-300'
-                    }`}
-                    style={{ backgroundColor: c.value }}
-                    title={c.label}
-                    aria-label={c.label}
-                  />
-                ))}
-              </div>
+              <CalendarColorSwatchSelect
+                value={task?.calendarColor}
+                onChange={handleColorChange}
+                disabled={updating}
+              />
             </div>
             {updating && <Spinner size="sm" />}
           </div>
@@ -225,32 +198,40 @@ function TaskCalendar({ task, onUpdate, updating }) {
 }
 
 // ─── Offer form ───────────────────────────────────────────────────────────────
-function OfferForm({ initial, onSubmit, loading, error, teamMembers }) {
+function OfferForm({ initial, onSubmit, loading, error, teamMembers, isAdmin = false }) {
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
-    uom: initial?.uom ?? '',
-    quantity: initial?.quantity ?? '',
-    unitCost: initial?.unitCost ?? '',
-    duration: initial?.duration ?? '',
+    unitCost: initial?.unitCost != null && !Number.isNaN(initial.unitCost) ? String(initial.unitCost) : '',
     assigneeIds: initial?.assigneeIds ?? [],
   })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
 
-  const qty = form.quantity !== '' ? parseFloat(form.quantity) : null
-  const cost = form.unitCost !== '' ? parseFloat(form.unitCost) : null
-  const previewTotal = qty != null && cost != null ? qty * cost : null
+  const costNum = form.unitCost !== '' ? parseFloat(form.unitCost) : null
+  const previewTotal = isAdmin && costNum != null && !Number.isNaN(costNum) ? costNum : null
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    let uc
+    let quantity
+    if (isAdmin) {
+      uc = form.unitCost !== '' ? parseFloat(form.unitCost) : null
+      quantity = uc != null && !Number.isNaN(uc) ? 1 : null
+    } else if (initial) {
+      uc = initial.unitCost != null && !Number.isNaN(initial.unitCost) ? initial.unitCost : null
+      quantity = initial.quantity != null ? initial.quantity : null
+    } else {
+      uc = null
+      quantity = null
+    }
     onSubmit({
       name: form.name.trim(),
       description: form.description.trim() || null,
-      uom: form.uom.trim() || null,
-      quantity: form.quantity !== '' ? parseFloat(form.quantity) : null,
-      unitCost: form.unitCost !== '' ? parseFloat(form.unitCost) : null,
-      duration: form.duration.trim() || null,
-      assigneeIds: form.assigneeIds?.length ? form.assigneeIds : null,
+      uom: null,
+      quantity,
+      unitCost: uc != null && !Number.isNaN(uc) ? uc : null,
+      duration: null,
+      assigneeIds: form.assigneeIds ?? [],
     })
   }
   return (
@@ -264,29 +245,12 @@ function OfferForm({ initial, onSubmit, loading, error, teamMembers }) {
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
         <textarea name="description" value={form.description} onChange={handleChange} rows={5} placeholder="Detailed specs or scope of work…" className={`${inputClass} resize-y min-h-[100px]`} />
       </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Unit of Measure</label>
-        <input name="uom" list="uom-list" value={form.uom} onChange={handleChange} placeholder="e.g. Each, kg, Hour, Day" className={inputClass} />
-        <datalist id="uom-list">
-          {UOM_OPTIONS.map((o) => (
-            <option key={o} value={o} />
-          ))}
-        </datalist>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
+      {isAdmin && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Quantity</label>
-          <input name="quantity" type="number" step="0.01" min="0" value={form.quantity} onChange={handleChange} placeholder="1" className={inputClass} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Unit cost ($)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Cost</label>
           <input name="unitCost" type="number" step="0.01" min="0" value={form.unitCost} onChange={handleChange} placeholder="0.00" className={inputClass} />
         </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration (optional)</label>
-        <input name="duration" value={form.duration} onChange={handleChange} placeholder="e.g. 3 Months or 2 Weeks" className={inputClass} />
-      </div>
+      )}
       {teamMembers && (
         <AssigneeSelector
           teamMembers={teamMembers}
@@ -296,7 +260,7 @@ function OfferForm({ initial, onSubmit, loading, error, teamMembers }) {
       )}
       {previewTotal != null && (
         <div className="flex items-center justify-between bg-indigo-50 rounded-xl px-4 py-2.5 text-sm">
-          <span className="text-indigo-600 font-medium">Line total</span>
+          <span className="text-indigo-600 font-medium">Total</span>
           <span className="font-bold text-indigo-700">{formatCurrency(previewTotal)}</span>
         </div>
       )}
@@ -352,12 +316,19 @@ function DescriptionEditForm({ offer, onSubmit, onClose, loading, error }) {
   )
 }
 
+function offerAssigneesLabel(offer, teamMembers) {
+  if (!offer?.assigneeIds?.length) return 'No assignees'
+  const names = offer.assigneeIds.map(
+    (id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id,
+  )
+  return names.filter(Boolean).join(', ') || '—'
+}
+
 // ─── Task edit form ───────────────────────────────────────────────────────────
-function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
+function TaskForm({ initial, onSubmit, loading, error, offers = [], teamMembers = [] }) {
   const [form, setForm] = useState({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
-    assigneeIds: initial?.assigneeIds ?? [],
     startDate: initial?.startDate ?? '',
     endDate: initial?.endDate ?? '',
     calendarColor: initial?.calendarColor ?? CALENDAR_COLORS[0].value,
@@ -368,7 +339,7 @@ function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
     onSubmit({
       name: form.name.trim(),
       description: form.description.trim() || null,
-      assigneeIds: form.assigneeIds?.length ? form.assigneeIds : null,
+      assigneeIds: initial?.assigneeIds ?? [],
       startDate: form.startDate || null,
       endDate: form.endDate || null,
       calendarColor: form.calendarColor || null,
@@ -392,34 +363,31 @@ function TaskForm({ initial, onSubmit, loading, error, teamMembers }) {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">End date (for calendar)</label>
-          <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={inputClass} />
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Calendar color</label>
-        <div className="flex flex-wrap gap-2 mt-1.5">
-          {CALENDAR_COLORS.map((c) => (
-            <button
-              key={c.value}
-              type="button"
-              onClick={() => setForm((p) => ({ ...p, calendarColor: c.value }))}
-              className={`w-8 h-8 rounded-lg border-2 transition-all ${
-                form.calendarColor === c.value ? 'border-gray-900 scale-110' : 'border-transparent hover:border-gray-300'
-              }`}
-              style={{ backgroundColor: c.value }}
-              title={c.label}
-              aria-label={c.label}
+          <div className="flex gap-2 items-stretch">
+            <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={`${inputClass} flex-1 min-w-0`} />
+            <CalendarColorSwatchSelect
+              value={form.calendarColor}
+              onChange={(v) => setForm((p) => ({ ...p, calendarColor: v }))}
+              triggerClassName="flex items-center gap-1 rounded-xl border border-gray-200 bg-gray-50 px-2 py-2 hover:bg-gray-100 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition h-full min-h-[42px]"
             />
-          ))}
+          </div>
         </div>
       </div>
-      {teamMembers && (
-        <AssigneeSelector
-          teamMembers={teamMembers}
-          value={form.assigneeIds}
-          onChange={(ids) => setForm((p) => ({ ...p, assigneeIds: ids }))}
-        />
-      )}
+      <div className="border-t border-gray-200 pt-4 mt-2">
+        <h3 className="text-sm font-semibold text-gray-800 mb-2">Team</h3>
+        {offers.length === 0 ? (
+          <p className="text-sm text-gray-500">No offers yet. Add offers below to assign team members to lines of work.</p>
+        ) : (
+          <ul className="space-y-2 max-h-52 overflow-y-auto pr-1">
+            {offers.map((offer) => (
+              <li key={offer.id} className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                <p className="text-sm font-medium text-gray-900">{offer.name}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{offerAssigneesLabel(offer, teamMembers)}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <div className="flex justify-end pt-2">
         <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
           {loading && <Spinner size="sm" />}
@@ -493,14 +461,13 @@ export default function TaskDetail() {
   const { projectId, taskId } = useParams()
   const { user } = useAuth()
   const tenantId = user?.tenantId
+  const isAdmin = user?.role === 'ADMIN'
 
   const [taskModal, setTaskModal] = useState(false)
   const [offerModal, setOfferModal] = useState(null)
-  const [emailModal, setEmailModal] = useState(null) // { toEmails } when open
   const [descriptionEditTarget, setDescriptionEditTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [mutationError, setMutationError] = useState(null)
-  const [assigneesExpanded, setAssigneesExpanded] = useState(false)
 
   const { data: projectData } = useQuery(GET_PROJECT, { variables: { id: projectId, tenantId }, skip: !tenantId })
   const { data: teamData } = useQuery(GET_USER_PROFILES, {
@@ -545,11 +512,6 @@ export default function TaskDetail() {
     onError: (e) => setMutationError(e.message),
   })
 
-  const [sendProjectEmail, { loading: sendingEmail }] = useMutation(SEND_PROJECT_EMAIL, {
-    onCompleted: () => setEmailModal(null),
-    onError: (e) => setMutationError(e.message),
-  })
-
   const project = projectData?.project
   const task = taskData?.task
   const offers = offersData?.offers?.items ?? []
@@ -591,89 +553,8 @@ export default function TaskDetail() {
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-gray-900">{task?.name}</h1>
             {task?.description && <p className="text-sm text-gray-500 mt-1">{task.description}</p>}
-            <div className="mt-4">
-              <div className="rounded-xl border border-gray-200 bg-gray-50/50 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setAssigneesExpanded((e) => !e)}
-                  className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left text-sm font-medium text-gray-700 hover:bg-gray-100/80 transition-colors"
-                >
-                  <span>
-                    Assigned team members
-                    <span className="text-gray-400 font-normal ml-1">
-                      ({(task?.assigneeIds ?? []).length} assigned)
-                    </span>
-                  </span>
-                  <svg
-                    className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${assigneesExpanded ? 'rotate-180' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {assigneesExpanded && (
-                  <div className="px-4 pb-4 pt-0">
-                    <AssigneeSelector
-                      teamMembers={teamMembers}
-                      value={task?.assigneeIds ?? []}
-                      onChange={(assigneeIds) =>
-                        updateTask({
-                          variables: {
-                            id: taskId,
-                            projectId,
-                            tenantId,
-                            input: {
-                              name: task?.name,
-                              description: task?.description ?? null,
-                              assigneeIds: assigneeIds ?? [],
-                              startDate: task?.startDate ?? null,
-                              endDate: task?.endDate ?? null,
-                              calendarColor: task?.calendarColor ?? null,
-                            },
-                          },
-                        })
-                      }
-                      label={null}
-                      disabled={updatingTask}
-                    />
-                    {updatingTask && (
-                      <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
-                        <Spinner size="sm" />
-                        <span>Saving…</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={() => {
-                const assigneeIds = task?.assigneeIds ?? []
-                const toEmails = assigneeIds
-                  .map((id) => teamMembers.find((m) => m.id === id)?.email)
-                  .filter(Boolean)
-                if (toEmails.length > 0) {
-                  setEmailModal({
-                    toEmails,
-                    defaultSubject: `Task: ${task?.name ?? ''}`,
-                    defaultBody: `Hi,\n\nRegarding task "${task?.name ?? ''}" in project "${project?.name ?? ''}":\n\n`,
-                  })
-                }
-              }}
-              disabled={!task?.assigneeIds?.length}
-              title={task?.assigneeIds?.length ? `Email ${task.assigneeIds.length} assignee(s)` : 'No assignees on this task'}
-              className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 px-3 py-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              Email assignees
-            </button>
             <button
               onClick={() => { setMutationError(null); setTaskModal(true) }}
               disabled={pricingInProgress}
@@ -690,12 +571,14 @@ export default function TaskDetail() {
       </div>
 
       {/* Cost Summary + Task Calendar */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <div className="bg-white rounded-2xl border border-gray-100 px-6 py-4 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-900">Cost Summary</h3>
-          <span className="text-lg font-bold text-indigo-600">{formatCurrency(grandTotal)}</span>
-        </div>
-        <div className="lg:col-span-2">
+      <div className={`grid grid-cols-1 gap-6 mb-6 ${isAdmin ? 'lg:grid-cols-3' : ''}`}>
+        {isAdmin && (
+          <div className="bg-white rounded-2xl border border-gray-100 px-6 py-4 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900">Cost Summary</h3>
+            <span className="text-lg font-bold text-indigo-600">{formatCurrency(grandTotal)}</span>
+          </div>
+        )}
+        <div className={isAdmin ? 'lg:col-span-2' : ''}>
           <TaskCalendar
             task={task}
             onUpdate={pricingInProgress ? undefined : (updates) =>
@@ -744,7 +627,11 @@ export default function TaskDetail() {
           ) : (
             <div className="flex-1 min-h-0 overflow-auto">
               <SectionTable
-                headers={['Name', 'Description', 'UoM', 'Qty', 'Unit Cost', 'Duration', 'Assignees', 'Total']}
+                headers={
+                  isAdmin
+                    ? ['Name', 'Description', 'Cost', 'Assignees', 'Total']
+                    : ['Name', 'Description', 'Assignees']
+                }
                 rows={offers.map((offer) => ({
                   id: offer.id,
                   original: offer,
@@ -759,18 +646,27 @@ export default function TaskDetail() {
                     >
                       {offer.description || '—'}
                     </button>,
-                    <span className="text-gray-700">{offer.uom || '—'}</span>,
-                    <span className="text-gray-700">{offer.quantity ?? '—'}</span>,
-                    <span className="text-gray-500 text-xs">{formatCurrency(offer.unitCost)}</span>,
-                    <span className="text-gray-500 text-xs">{offer.duration || '—'}</span>,
-                    <span className="text-gray-500 text-xs">
-                      {offer.assigneeIds?.length
-                        ? offer.assigneeIds
-                            .map((id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id)
-                            .join(', ') || '—'
-                        : '—'}
-                    </span>,
-                    <span className="font-medium text-gray-700">{formatCurrency(offer.total)}</span>,
+                    ...(isAdmin
+                      ? [
+                          <span key="c" className="text-gray-500 text-xs">{formatCurrency(offer.unitCost)}</span>,
+                          <span key="a" className="text-gray-500 text-xs">
+                            {offer.assigneeIds?.length
+                              ? offer.assigneeIds
+                                  .map((id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id)
+                                  .join(', ') || '—'
+                              : '—'}
+                          </span>,
+                          <span key="t" className="font-medium text-gray-700">{formatCurrency(offer.total)}</span>,
+                        ]
+                      : [
+                          <span key="a" className="text-gray-500 text-xs">
+                            {offer.assigneeIds?.length
+                              ? offer.assigneeIds
+                                  .map((id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id)
+                                  .join(', ') || '—'
+                              : '—'}
+                          </span>,
+                        ]),
                   ],
                 }))}
                 onEdit={(offer) => { setMutationError(null); setOfferModal({ mode: 'edit', offer }) }}
@@ -782,7 +678,7 @@ export default function TaskDetail() {
               />
             </div>
           )}
-          {offers.length > 0 && (
+          {isAdmin && offers.length > 0 && (
             <div className="px-6 py-3 border-t border-gray-100 bg-gray-50/50 flex justify-end flex-shrink-0">
               <span className="text-sm font-semibold text-gray-700">
                 Total: {formatCurrency(grandTotal)}
@@ -793,24 +689,26 @@ export default function TaskDetail() {
       </div>
 
       {/* Task edit modal */}
-      <Modal open={taskModal} onClose={() => setTaskModal(false)} title="Edit task">
+      <Modal open={taskModal} onClose={() => setTaskModal(false)} title="Edit task" maxWidth="max-w-xl">
         {task && (
           <TaskForm
             initial={task}
+            offers={offers}
+            teamMembers={teamMembers}
             onSubmit={(input) => updateTask({ variables: { id: taskId, projectId, tenantId, input } })}
             loading={updatingTask}
             error={mutationError}
-            teamMembers={teamMembers}
           />
         )}
       </Modal>
 
       {/* Offer modals */}
-      <Modal open={!!offerModal} onClose={() => setOfferModal(null)} title={offerModal?.mode === 'create' ? 'Add offer' : 'Edit offer'}>
+      <Modal open={!!offerModal} onClose={() => setOfferModal(null)} title={offerModal?.mode === 'create' ? 'Add offer' : 'Edit offer'} maxWidth="max-w-2xl">
         {offerModal && (
           <OfferForm
             initial={offerModal.offer}
             teamMembers={teamMembers}
+            isAdmin={isAdmin}
             onSubmit={
               offerModal.mode === 'create'
                 ? (input) => createOffer({ variables: { input: { ...input, projectId, taskId, tenantId } } })
@@ -857,33 +755,6 @@ export default function TaskDetail() {
           />
         )}
       </Modal>
-
-      {/* Email compose modal */}
-      <EmailComposeModal
-        open={!!emailModal}
-        onClose={() => { setEmailModal(null); setMutationError(null) }}
-        toEmails={emailModal?.toEmails ?? []}
-        defaultSubject={emailModal?.defaultSubject ?? ''}
-        defaultBody={emailModal?.defaultBody ?? ''}
-        sending={sendingEmail}
-        error={mutationError}
-        onSend={({ subject, body }) => {
-          setMutationError(null)
-          sendProjectEmail({
-            variables: {
-              input: {
-                tenantId,
-                projectId,
-                taskId,
-                senderId: user?.id,
-                toEmails: emailModal?.toEmails ?? [],
-                subject,
-                body,
-              },
-            },
-          })
-        }}
-      />
 
       {/* Delete confirm */}
       <ConfirmDialog

@@ -8,6 +8,13 @@ export const GET_TENANTS = gql`
       organizationName
       displayName
       email
+      phoneNumber
+      addressLine1
+      addressLine2
+      city
+      state
+      postalCode
+      country
       status
       subscriptionPlan
       createdAt
@@ -24,6 +31,13 @@ export const GET_TENANT = gql`
       organizationName
       displayName
       email
+      phoneNumber
+      addressLine1
+      addressLine2
+      city
+      state
+      postalCode
+      country
       status
       subscriptionPlan
       createdAt
@@ -53,6 +67,14 @@ export const UPDATE_TENANT = gql`
       id
       organizationName
       displayName
+      email
+      phoneNumber
+      addressLine1
+      addressLine2
+      city
+      state
+      postalCode
+      country
       status
       subscriptionPlan
       updatedAt

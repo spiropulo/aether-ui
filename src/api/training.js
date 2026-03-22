@@ -7,6 +7,22 @@ export const GET_TENANT_TRAINING = gql`
         id
         description
         entries { key value }
+        pricingFacts {
+          id
+          projectType
+          material
+          unit
+          priceMin
+          priceMax
+          pricePoint
+          includesLabor
+          condition
+          notes
+          source
+          confidence
+          basedOnCount
+          observedAt
+        }
         tenantId
         projectId
         uploadedAt
@@ -28,6 +44,22 @@ export const GET_PROJECT_TRAINING = gql`
         id
         description
         entries { key value }
+        pricingFacts {
+          id
+          projectType
+          material
+          unit
+          priceMin
+          priceMax
+          pricePoint
+          includesLabor
+          condition
+          notes
+          source
+          confidence
+          basedOnCount
+          observedAt
+        }
         tenantId
         projectId
         uploadedAt
@@ -48,6 +80,15 @@ export const CREATE_TENANT_TRAINING = gql`
       id
       description
       entries { key value }
+      pricingFacts {
+        id
+        projectType
+        unit
+        priceMin
+        priceMax
+        pricePoint
+        includesLabor
+      }
       tenantId
       uploadedAt
       createdAt
@@ -61,6 +102,15 @@ export const CREATE_PROJECT_TRAINING = gql`
       id
       description
       entries { key value }
+      pricingFacts {
+        id
+        projectType
+        unit
+        priceMin
+        priceMax
+        pricePoint
+        includesLabor
+      }
       tenantId
       projectId
       uploadedAt
@@ -75,6 +125,15 @@ export const UPDATE_TRAINING = gql`
       id
       description
       entries { key value }
+      pricingFacts {
+        id
+        projectType
+        unit
+        priceMin
+        priceMax
+        pricePoint
+        includesLabor
+      }
       updatedAt
     }
   }
