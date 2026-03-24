@@ -33,6 +33,7 @@ import {
 } from '../api/estimate'
 import EmailComposeModal from '../components/EmailComposeModal'
 import ProjectMessageHistoryItem from '../components/ProjectMessageHistoryItem'
+import WeeklyEfficiencyPanel, { toDateInputValue } from '../components/WeeklyEfficiencyPanel'
 import {
   GET_TENANT_TRAINING,
   GET_PROJECT_TRAINING,
@@ -375,6 +376,7 @@ function ProjectCalendar({ projectId, tasks, onSwitchToTasks, refetchTasks }) {
   for (let d = 1; d <= days; d++) {
     const dateStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
     tasksByDay[dateStr] = tasksWithDates.filter((t) => {
+      if ((t.calendarExcludedDates ?? []).includes(dateStr)) return false
       const start = parseDateOnly(t.startDate)
       const end = t.endDate ? parseDateOnly(t.endDate) : null
       const endDay = end ? new Date(end) : null
@@ -423,7 +425,7 @@ function ProjectCalendar({ projectId, tasks, onSwitchToTasks, refetchTasks }) {
       </div>
       <div className="p-4">
         <p className="text-sm text-gray-500 mb-4">
-          Assign start and end dates to tasks in the Tasks tab to see them here.
+          Assign start and end dates to tasks in the Tasks tab to see them here. Days removed on a task&apos;s calendar are hidden here and excluded from labor efficiency.
         </p>
         <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden">
           {dayHeaders.map((h) => (
@@ -521,6 +523,8 @@ function ProjectForm({ initial, suggestedStatuses = [], teamMembers = [], isAdmi
     state: initial?.state ?? '',
     postalCode: initial?.postalCode ?? '',
     country: initial?.country ?? '',
+    laborWorkdayStart: initial?.laborWorkdayStart ?? '',
+    laborWorkdayEnd: initial?.laborWorkdayEnd ?? '',
   })
   const [laborRows, setLaborRows] = useState(() =>
     (initial?.laborRateOverrides ?? []).map((o) => ({
@@ -548,6 +552,8 @@ function ProjectForm({ initial, suggestedStatuses = [], teamMembers = [], isAdmi
       payload.laborRateOverrides = laborRows
         .filter((r) => r.userProfileId && r.hourlyRate.trim() !== '')
         .map((r) => ({ userProfileId: r.userProfileId, hourlyRate: parseFloat(r.hourlyRate) }))
+      payload.laborWorkdayStart = form.laborWorkdayStart.trim() || null
+      payload.laborWorkdayEnd = form.laborWorkdayEnd.trim() || null
     }
     onSubmit(payload)
   }
@@ -619,6 +625,36 @@ function ProjectForm({ initial, suggestedStatuses = [], teamMembers = [], isAdmi
           </div>
         </div>
       </div>
+      {isAdmin && (
+        <div className="border-t border-gray-200 pt-4 mt-4">
+          <h3 className="text-sm font-semibold text-gray-800 mb-1">Labor efficiency workday (optional)</h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Override the workspace default workday window for planned/actual hours on this project. Leave blank to use Settings. Use 24-hour times (e.g. 08:00 and 17:00).
+          </p>
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Workday start</label>
+              <input
+                name="laborWorkdayStart"
+                type="time"
+                value={form.laborWorkdayStart}
+                onChange={handleChange}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Workday end</label>
+              <input
+                name="laborWorkdayEnd"
+                type="time"
+                value={form.laborWorkdayEnd}
+                onChange={handleChange}
+                className={inputClass}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {isAdmin && (
         <div className="border-t border-gray-200 pt-4 mt-4">
           <h3 className="text-sm font-semibold text-gray-800 mb-1">Labor rates on this project</h3>
@@ -807,6 +843,10 @@ export default function ProjectDetail() {
   const [emailModal, setEmailModal] = useState(null) // { type, taskId?, taskName?, recipients, modalKey, defaultSubject, defaultBody }
   const [emailSearch, setEmailSearch] = useState('')
   const [emailSearchInput, setEmailSearchInput] = useState('')
+  const [laborWeekDate, setLaborWeekDate] = useState(() => toDateInputValue(new Date()))
+  const [laborWeekMode, setLaborWeekMode] = useState('ISO_MONDAY')
+  const [laborAssigneeFilter, setLaborAssigneeFilter] = useState('')
+  const [laborTaskFilter, setLaborTaskFilter] = useState('')
   const [pricingRunsSearch, setPricingRunsSearch] = useState('')
   const [pricingRunsSearchInput, setPricingRunsSearchInput] = useState('')
   const [pricingConfirmOpen, setPricingConfirmOpen] = useState(false)
@@ -1412,6 +1452,7 @@ export default function ProjectDetail() {
               ]
             : []),
           { key: 'emails', label: 'Messages' },
+          { key: 'labor', label: 'Weekly efficiency' },
           { key: 'pdfs', label: 'PDFs' },
         ].map((tab) => (
           <button
@@ -1716,6 +1757,24 @@ export default function ProjectDetail() {
             )}
           </div>
         </div>
+      )}
+
+      {activeTab === 'labor' && (
+        <WeeklyEfficiencyPanel
+          projectId={projectId}
+          tenantId={tenantId}
+          tasks={tasksData?.tasks?.items ?? []}
+          teamMembers={teamMembers}
+          active={activeTab === 'labor'}
+          weekContainingDate={laborWeekDate}
+          onWeekContainingDateChange={setLaborWeekDate}
+          weekStartMode={laborWeekMode}
+          onWeekStartModeChange={setLaborWeekMode}
+          assigneeFilter={laborAssigneeFilter}
+          onAssigneeFilterChange={setLaborAssigneeFilter}
+          taskFilter={laborTaskFilter}
+          onTaskFilterChange={setLaborTaskFilter}
+        />
       )}
 
       {activeTab === 'emails' && (

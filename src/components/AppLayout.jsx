@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const NAV_ITEMS = [
@@ -33,6 +33,11 @@ const NAV_ITEMS = [
   },
 ]
 
+const LEARNING_CENTER_LINKS = [
+  { label: 'Train Estimator', to: '/app/learning/train-estimator', end: true },
+  { label: 'Calendars & weekly efficiency', to: '/app/learning/calendars-weekly-efficiency', end: true },
+]
+
 const ADMIN_ITEMS = [
   {
     label: 'AI Training',
@@ -40,16 +45,6 @@ const ADMIN_ITEMS = [
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
-      </svg>
-    ),
-  },
-  {
-    label: 'Train Estimator',
-    to: '/app/admin/train-estimator',
-    end: true,
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
       </svg>
     ),
   },
@@ -63,6 +58,67 @@ const ADMIN_ITEMS = [
     ),
   },
 ]
+
+function LearningCenterNav({ onClose }) {
+  const location = useLocation()
+  const underLearning = location.pathname.startsWith('/app/learning')
+  const [expanded, setExpanded] = useState(underLearning)
+
+  useEffect(() => {
+    if (underLearning) setExpanded(true)
+  }, [underLearning])
+
+  return (
+    <div className="mt-0.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+          underLearning ? 'text-indigo-200 bg-slate-800/40' : 'text-slate-400 hover:bg-slate-700/50 hover:text-white'
+        }`}
+      >
+        <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24" aria-hidden>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.716 50.716 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5"
+          />
+        </svg>
+        <span className="flex-1 text-left">Learning Center</span>
+        <svg
+          className={`w-4 h-4 shrink-0 text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          viewBox="0 0 24 24"
+          aria-hidden
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {expanded ? (
+        <div className="mt-0.5 ml-2 pl-3 border-l border-slate-600/60 space-y-0.5">
+          {LEARNING_CENTER_LINKS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              onClick={onClose}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  isActive ? 'bg-indigo-500/20 text-indigo-300 font-medium' : 'text-slate-400 hover:bg-slate-700/50 hover:text-white'
+                }`
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 function NavItem({ item, onClick }) {
   return (
@@ -117,9 +173,9 @@ function SidebarContent({ user, onLogout, onClose }) {
             <div className="pt-5 pb-2 px-3">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Admin</p>
             </div>
-            {ADMIN_ITEMS.map((item) => (
-              <NavItem key={item.label} item={item} onClick={onClose} />
-            ))}
+            <NavItem item={ADMIN_ITEMS[0]} onClick={onClose} />
+            <LearningCenterNav onClose={onClose} />
+            <NavItem item={ADMIN_ITEMS[1]} onClick={onClose} />
           </>
         )}
       </nav>

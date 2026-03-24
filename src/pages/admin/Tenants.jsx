@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useQuery, useMutation } from '@apollo/client/react'
 import { useAuth } from '../../context/AuthContext'
 import { GET_TENANTS, UPDATE_TENANT } from '../../api/tenants'
@@ -28,6 +29,14 @@ function EditTenantForm({ tenant, onSubmit, loading, error }) {
     country: tenant.country ?? '',
   })
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.location.hash !== '#workspace-company-contact') return
+    const id = window.setTimeout(() => {
+      document.getElementById('workspace-company-contact')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }, 150)
+    return () => window.clearTimeout(id)
+  }, [tenant.id])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -70,7 +79,7 @@ function EditTenantForm({ tenant, onSubmit, loading, error }) {
         <p className="text-xs text-gray-400 mt-1">Billing and workspace contact; does not change user login emails.</p>
       </div>
 
-      <div className="pt-2 border-t border-gray-100">
+      <div id="workspace-company-contact" className="pt-2 border-t border-gray-100 scroll-mt-4">
         <h4 className="text-sm font-medium text-gray-800 mb-3">Company phone &amp; address (required)</h4>
         <div className="space-y-4">
           <div>
@@ -134,6 +143,7 @@ function formatDate(d) {
 export default function Tenants() {
   const { user } = useAuth()
   const tenantId = user?.tenantId
+  const location = useLocation()
 
   const [editTenant, setEditTenant] = useState(null)
   const [mutationError, setMutationError] = useState(null)
@@ -160,6 +170,22 @@ export default function Tenants() {
   })
 
   const tenants = data?.tenants ?? []
+  const soleTenantId = tenants.length === 1 ? tenants[0].id : null
+  const openedCompanySectionFromHashRef = useRef(false)
+
+  useEffect(() => {
+    openedCompanySectionFromHashRef.current = false
+  }, [location.key])
+
+  useEffect(() => {
+    if (loading || !soleTenantId) return
+    if (location.hash !== '#workspace-company-contact') return
+    if (openedCompanySectionFromHashRef.current) return
+    openedCompanySectionFromHashRef.current = true
+    setMutationError(null)
+    const row = tenants.find((t) => t.id === soleTenantId)
+    if (row) setEditTenant(row)
+  }, [loading, location.hash, location.key, soleTenantId, tenants])
 
   useEffect(() => {
     if (!tenantId) return

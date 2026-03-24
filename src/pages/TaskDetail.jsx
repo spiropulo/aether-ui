@@ -124,8 +124,12 @@ function parseDateOnly(dateStr) {
   return new Date(parts[0], parts[1] - 1, parts[2])
 }
 
-/** Tasks active on a given calendar day (local date), same rules as project calendar */
-function taskSpansDay(t, year, month, day) {
+function calendarCellDateStr(year, month, day) {
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+/** Task start–end range covers this day (ignores per-day exclusions). */
+function taskDateRangeContains(t, year, month, day) {
   if (!t.startDate && !t.endDate) return false
   const cell = new Date(year, month, day)
   cell.setHours(0, 0, 0, 0)
@@ -136,6 +140,13 @@ function taskSpansDay(t, year, month, day) {
   if (start && cell < start) return false
   if (endDay && cell > endDay) return false
   return true
+}
+
+/** Tasks active on a given calendar day (local date), same rules as project calendar */
+function taskSpansDay(t, year, month, day) {
+  const dateStr = calendarCellDateStr(year, month, day)
+  if ((t.calendarExcludedDates ?? []).includes(dateStr)) return false
+  return taskDateRangeContains(t, year, month, day)
 }
 
 // ─── Task calendar (this task + other project tasks with dates) ───────────────
@@ -252,9 +263,17 @@ function TaskCalendar({ task, projectId, projectTasks = [], onUpdate, updating }
           </div>
         )}
         {hasOwnDates && (
-          <p className="text-xs text-gray-500 mb-3">
-            This task: {task.startDate ? formatDate(task.startDate) : '?'} — {task.endDate ? formatDate(task.endDate) : '?'}
-          </p>
+          <div className="text-xs text-gray-500 mb-3 space-y-1">
+            <p>
+              This task: {task.startDate ? formatDate(task.startDate) : '?'} — {task.endDate ? formatDate(task.endDate) : '?'}
+            </p>
+            {onUpdate ? (
+              <p>
+                Use <span className="font-medium text-gray-700">Remove day</span> on a date to drop it from this timeline and from weekly labor planned/actual hours.{' '}
+                <span className="font-medium text-gray-700">Include day</span> adds it back.
+              </p>
+            ) : null}
+          </div>
         )}
         {showGrid ? (
           <>
@@ -277,18 +296,43 @@ function TaskCalendar({ task, projectId, projectTasks = [], onUpdate, updating }
                 const dateStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
                 const dayTasks = tasksByDay[dateStr] ?? []
                 const isToday = dateStr === todayStr
+                const currentInRange =
+                  !!currentId &&
+                  hasOwnDates &&
+                  task &&
+                  taskDateRangeContains(task, viewDate.year, viewDate.month, d)
+                const currentExcluded = (task?.calendarExcludedDates ?? []).includes(dateStr)
                 return (
                   <div
                     key={d}
-                    className={`min-h-[72px] p-1.5 bg-white ${isToday ? 'ring-2 ring-indigo-400 ring-inset rounded' : ''}`}
+                    className={`min-h-[92px] p-1.5 bg-white ${isToday ? 'ring-2 ring-indigo-400 ring-inset rounded' : ''}`}
                   >
                     <span
                       className={`inline-flex w-6 h-6 items-center justify-center rounded-full text-xs font-medium ${
-                        isToday ? 'bg-indigo-600 text-white' : 'text-gray-700'
+                        isToday ? 'bg-indigo-600 text-white' : currentExcluded && currentInRange ? 'bg-gray-200 text-gray-500 line-through' : 'text-gray-700'
                       }`}
                     >
                       {d}
                     </span>
+                    {onUpdate && currentInRange ? (
+                      <button
+                        type="button"
+                        disabled={updating}
+                        onClick={() => {
+                          const next = new Set(task.calendarExcludedDates ?? [])
+                          if (next.has(dateStr)) next.delete(dateStr)
+                          else next.add(dateStr)
+                          onUpdate({ calendarExcludedDates: Array.from(next).sort() })
+                        }}
+                        className={`mt-0.5 w-full text-[10px] font-semibold leading-tight px-1 py-0.5 rounded border transition-colors disabled:opacity-50 ${
+                          currentExcluded
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                            : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {currentExcluded ? 'Include day' : 'Remove day'}
+                      </button>
+                    ) : null}
                     <div className="mt-1 space-y-0.5">
                       {dayTasks.slice(0, 3).map((t) => {
                         const c = t.calendarColor || '#6366F1'
@@ -711,23 +755,27 @@ export default function TaskDetail() {
             task={task}
             projectId={projectId}
             projectTasks={projectTasksData?.tasks?.items ?? []}
-            onUpdate={pricingInProgress ? undefined : (updates) =>
+            onUpdate={pricingInProgress ? undefined : (updates) => {
+              const input = {
+                name: updates.name !== undefined ? updates.name : task?.name,
+                description: updates.description !== undefined ? updates.description : task?.description ?? null,
+                assigneeIds: updates.assigneeIds !== undefined ? updates.assigneeIds : task?.assigneeIds ?? null,
+                startDate: updates.startDate !== undefined ? updates.startDate : task?.startDate ?? null,
+                endDate: updates.endDate !== undefined ? updates.endDate : task?.endDate ?? null,
+                calendarColor: updates.calendarColor !== undefined ? updates.calendarColor : task?.calendarColor ?? null,
+              }
+              if (updates.calendarExcludedDates !== undefined) {
+                input.calendarExcludedDates = updates.calendarExcludedDates
+              }
               updateTask({
                 variables: {
                   id: taskId,
                   projectId,
                   tenantId,
-                  input: {
-                    name: task?.name,
-                    description: task?.description ?? null,
-                    assigneeIds: task?.assigneeIds ?? null,
-                    startDate: updates.startDate ?? task?.startDate ?? null,
-                    endDate: updates.endDate ?? task?.endDate ?? null,
-                    calendarColor: updates.calendarColor ?? task?.calendarColor ?? null,
-                  },
+                  input,
                 },
               })
-            }
+            }}
             updating={updatingTask}
           />
         </div>

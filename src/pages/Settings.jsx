@@ -1,15 +1,25 @@
-import { useState, useEffect } from 'react'
-import { useMutation } from '@apollo/client/react'
+import { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
+import { useMutation, useQuery } from '@apollo/client/react'
 import { useAuth } from '../context/AuthContext'
 import { CHANGE_PASSWORD } from '../api/auth'
+import { GET_WORKSPACE_TENANTS, UPDATE_WORKSPACE_TENANT } from '../api/projects'
 import { getSubscriptionStatus, subscribeToPlan, cancelSubscription, resumeSubscription, createCheckoutSession, confirmCheckout, setBillingReminder, createBillingPortalSession } from '../api/subscription'
 import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
 import Alert from '../components/ui/Alert'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import { getIanaTimezoneOptions } from '../constants/ianaTimezones'
+import SearchableTimezoneSelect from '../components/ui/SearchableTimezoneSelect'
 
 const inputClass =
   'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition'
+
+function workspaceContactIncomplete(tenant) {
+  if (!tenant) return false
+  const v = (s) => (s && String(s).trim()) || ''
+  return !v(tenant.phoneNumber) || !v(tenant.addressLine1) || !v(tenant.city) || !v(tenant.country)
+}
 
 /** One settings surface: optional header (title and/or description), else body-only like other app cards. */
 function SettingsCard({ title, description, children, className = '' }) {
@@ -44,6 +54,41 @@ export default function Settings() {
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false)
 
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirm: '' })
+  const [laborForm, setLaborForm] = useState({ laborTimezone: '', laborWorkdayStart: '', laborWorkdayEnd: '' })
+  const [laborSaveSuccess, setLaborSaveSuccess] = useState(null)
+  const [laborSaveError, setLaborSaveError] = useState(null)
+
+  const laborTimezoneOptions = useMemo(() => getIanaTimezoneOptions(), [])
+
+  const { data: tenantsData, loading: tenantsLoading } = useQuery(GET_WORKSPACE_TENANTS, {
+    variables: { tenantId: tenantId || '' },
+    skip: !isAdmin || !tenantId,
+  })
+  const workspaceTenant = tenantsData?.tenants?.[0]
+
+  useEffect(() => {
+    if (!workspaceTenant) return
+    setLaborForm({
+      laborTimezone: workspaceTenant.laborTimezone ?? '',
+      laborWorkdayStart: workspaceTenant.laborWorkdayStart ?? '',
+      laborWorkdayEnd: workspaceTenant.laborWorkdayEnd ?? '',
+    })
+  }, [
+    workspaceTenant?.id,
+    workspaceTenant?.laborTimezone,
+    workspaceTenant?.laborWorkdayStart,
+    workspaceTenant?.laborWorkdayEnd,
+  ])
+
+  const [updateWorkspaceTenant, { loading: savingLabor }] = useMutation(UPDATE_WORKSPACE_TENANT, {
+    onCompleted: () => {
+      setLaborSaveError(null)
+      setLaborSaveSuccess('Labor calendar settings saved.')
+      setTimeout(() => setLaborSaveSuccess(null), 4000)
+    },
+    onError: (e) => setLaborSaveError(e.message),
+    refetchQueries: [{ query: GET_WORKSPACE_TENANTS, variables: { tenantId: tenantId || '' } }],
+  })
 
   const [changePassword, { loading: changingPassword }] = useMutation(CHANGE_PASSWORD, {
     onCompleted: () => {
@@ -192,7 +237,7 @@ export default function Settings() {
       <div className="mb-10">
         <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Settings</h1>
         <p className="text-sm text-gray-500 mt-2 max-w-lg leading-relaxed">
-          {isAdmin ? 'Password and AI pricing subscription.' : 'Change your account password.'}
+          {isAdmin ? 'Password, labor reporting calendar, and AI pricing subscription.' : 'Change your account password.'}
         </p>
       </div>
 
@@ -220,6 +265,104 @@ export default function Settings() {
           </div>
         </form>
       </SettingsCard>
+
+      {isAdmin && (
+        <SettingsCard
+          title="Labor reporting calendar"
+          description="Timezone and default workday length used for weekly labor efficiency (each calendar day in the task range × hours per scheduled day). Projects can override workday start/end only."
+        >
+          <Alert type="success" message={laborSaveSuccess} onDismiss={() => setLaborSaveSuccess(null)} />
+          <Alert message={laborSaveError} onDismiss={() => setLaborSaveError(null)} />
+          {workspaceTenant && workspaceContactIncomplete(workspaceTenant) ? (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+              The workspace must include company phone, street address (line 1), city, and country. You can still save labor
+              settings below.{' '}
+              <Link
+                to="/app/admin/tenants#workspace-company-contact"
+                className="font-semibold text-amber-950 underline decoration-amber-700/60 underline-offset-2 hover:decoration-amber-950"
+              >
+                Add them under Organization
+              </Link>
+              .
+            </p>
+          ) : null}
+          {tenantsLoading && !workspaceTenant ? (
+            <div className="flex justify-center py-6">
+              <Spinner />
+            </div>
+          ) : workspaceTenant ? (
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setLaborSaveError(null)
+                updateWorkspaceTenant({
+                  variables: {
+                    id: workspaceTenant.id,
+                    tenantId,
+                    input: {
+                      laborTimezone: laborForm.laborTimezone.trim() || null,
+                      laborWorkdayStart: laborForm.laborWorkdayStart.trim() || null,
+                      laborWorkdayEnd: laborForm.laborWorkdayEnd.trim() || null,
+                    },
+                  },
+                })
+              }}
+            >
+              {!workspaceTenant.laborTimezone || !workspaceTenant.laborWorkdayStart || !workspaceTenant.laborWorkdayEnd ? (
+                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                  Set all three fields for accurate reports. Until then, the app uses America/Los_Angeles and 09:00–17:00 with a notice on the weekly efficiency panel.
+                </p>
+              ) : null}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">IANA timezone</label>
+                <SearchableTimezoneSelect
+                  value={laborForm.laborTimezone}
+                  onChange={(tz) => setLaborForm((p) => ({ ...p, laborTimezone: tz }))}
+                  options={laborTimezoneOptions}
+                  disabled={savingLabor}
+                  className={inputClass + ' flex items-center justify-between gap-2'}
+                />
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Search or browse the list from your browser; pick the region/city that matches where work is scheduled.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Default workday start</label>
+                  <input
+                    type="time"
+                    value={laborForm.laborWorkdayStart}
+                    onChange={(e) => setLaborForm((p) => ({ ...p, laborWorkdayStart: e.target.value }))}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Default workday end</label>
+                  <input
+                    type="time"
+                    value={laborForm.laborWorkdayEnd}
+                    onChange={(e) => setLaborForm((p) => ({ ...p, laborWorkdayEnd: e.target.value }))}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={savingLabor}
+                  className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60"
+                >
+                  {savingLabor && <Spinner size="sm" />}
+                  Save labor settings
+                </button>
+              </div>
+            </form>
+          ) : (
+            <p className="text-sm text-gray-500">Workspace tenant record not found.</p>
+          )}
+        </SettingsCard>
+      )}
 
       {isAdmin && (
       <SettingsCard title="AI Pricing Subscription" description="Plans, usage, and billing for AI-assisted project pricing.">

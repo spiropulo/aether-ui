@@ -40,8 +40,10 @@ export default function EstimatorAgentGuide() {
       </style>
 
       <div className="p-6 md:p-8 max-w-4xl mx-auto pb-16">
-        <nav className="flex items-center gap-2 text-sm text-gray-500 mb-6">
+        <nav className="flex items-center gap-2 text-sm text-gray-500 mb-6 flex-wrap">
           <Link to="/app/dashboard" className="hover:text-indigo-600 transition-colors">Dashboard</Link>
+          <span aria-hidden>→</span>
+          <span className="text-gray-600">Learning Center</span>
           <span aria-hidden>→</span>
           <span className="text-gray-900 font-medium">Train your Estimator</span>
         </nav>
@@ -273,6 +275,12 @@ export default function EstimatorAgentGuide() {
               className="inline-flex items-center gap-2 bg-indigo-500/30 text-white font-semibold px-5 py-2.5 rounded-xl border border-white/30 hover:bg-indigo-500/50 transition-colors"
             >
               Go to Projects
+            </Link>
+            <Link
+              to="/app/learning/calendars-weekly-efficiency"
+              className="inline-flex items-center gap-2 bg-white/10 text-white font-semibold px-5 py-2.5 rounded-xl border border-white/25 hover:bg-white/20 transition-colors"
+            >
+              Calendars &amp; weekly efficiency
             </Link>
           </div>
         </section>

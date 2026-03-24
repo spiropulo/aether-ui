@@ -33,6 +33,7 @@ import Training from './pages/Training'
 import Settings from './pages/Settings'
 import Tenants from './pages/admin/Tenants'
 import EstimatorAgentGuide from './pages/admin/EstimatorAgentGuide'
+import CalendarsWeeklyEfficiencyGuide from './pages/learning/CalendarsWeeklyEfficiencyGuide'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -122,9 +123,15 @@ export default function App() {
                 path="admin/tenants"
                 element={<AdminRoute><Tenants /></AdminRoute>}
               />
+              <Route path="admin/train-estimator" element={<Navigate to="/app/learning/train-estimator" replace />} />
+              <Route path="learning" element={<Navigate to="/app/learning/train-estimator" replace />} />
               <Route
-                path="admin/train-estimator"
+                path="learning/train-estimator"
                 element={<AdminRoute><EstimatorAgentGuide /></AdminRoute>}
+              />
+              <Route
+                path="learning/calendars-weekly-efficiency"
+                element={<AdminRoute><CalendarsWeeklyEfficiencyGuide /></AdminRoute>}
               />
             </Route>
 

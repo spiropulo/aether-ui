@@ -375,6 +375,25 @@ export default function OfferDetail() {
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Assignees</h3>
               <p className="text-gray-700">{offerAssigneesLabel(offer, teamMembers)}</p>
             </div>
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Marked complete at</h3>
+              <p className="text-gray-900 font-medium text-sm">
+                {offer.workCompletedAt
+                  ? new Date(offer.workCompletedAt).toLocaleString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : offer.workCompleted
+                    ? '—'
+                    : '—'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Weekly labor efficiency uses the task calendar dates and this timestamp; hours per day come from Settings (and optional project overrides).
+              </p>
+            </div>
             {isAdmin && (
               <>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">

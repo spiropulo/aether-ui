@@ -68,6 +68,8 @@ export const GET_PROJECT = gql`
         userProfileId
         hourlyRate
       }
+      laborWorkdayStart
+      laborWorkdayEnd
     }
   }
 `
@@ -123,6 +125,8 @@ export const UPDATE_PROJECT = gql`
         userProfileId
         hourlyRate
       }
+      laborWorkdayStart
+      laborWorkdayEnd
     }
   }
 `
@@ -146,6 +150,7 @@ export const GET_TASKS = gql`
         startDate
         endDate
         calendarColor
+        calendarExcludedDates
         projectId
         tenantId
         offerCompletionPercent
@@ -170,6 +175,7 @@ export const GET_TASK = gql`
       startDate
       endDate
       calendarColor
+      calendarExcludedDates
       projectId
       tenantId
       offerCompletionPercent
@@ -189,6 +195,7 @@ export const CREATE_TASK = gql`
       startDate
       endDate
       calendarColor
+      calendarExcludedDates
       projectId
       tenantId
       createdAt
@@ -206,6 +213,7 @@ export const UPDATE_TASK = gql`
       startDate
       endDate
       calendarColor
+      calendarExcludedDates
       updatedAt
     }
   }
@@ -228,6 +236,8 @@ export const GET_OFFERS_BY_PROJECT = gql`
       unitCost
       total
       assigneeIds
+      workCompleted
+      workCompletedAt
     }
   }
 `
@@ -248,6 +258,7 @@ export const GET_OFFERS = gql`
         total
         assigneeIds
         workCompleted
+        workCompletedAt
         projectId
         taskId
         tenantId
@@ -275,6 +286,7 @@ export const GET_OFFER = gql`
       total
       assigneeIds
       workCompleted
+      workCompletedAt
       projectId
       taskId
       tenantId
@@ -297,6 +309,7 @@ export const CREATE_OFFER = gql`
       total
       assigneeIds
       workCompleted
+      workCompletedAt
       projectId
       taskId
       tenantId
@@ -318,6 +331,7 @@ export const UPDATE_OFFER = gql`
       total
       assigneeIds
       workCompleted
+      workCompletedAt
       updatedAt
     }
   }
@@ -394,6 +408,88 @@ export const SEND_PROJECT_EMAIL = gql`
       subject
       body
       sentAt
+    }
+  }
+`
+
+// ─── Workspace tenant (Settings) ─────────────────────────────────────────────
+
+export const GET_WORKSPACE_TENANTS = gql`
+  query WorkspaceTenants($tenantId: String!) {
+    tenants(tenantId: $tenantId) {
+      id
+      tenantId
+      organizationName
+      phoneNumber
+      addressLine1
+      city
+      country
+      laborTimezone
+      laborWorkdayStart
+      laborWorkdayEnd
+    }
+  }
+`
+
+export const UPDATE_WORKSPACE_TENANT = gql`
+  mutation UpdateWorkspaceTenant($id: ID!, $tenantId: String!, $input: UpdateTenantInput!) {
+    updateTenant(id: $id, tenantId: $tenantId, input: $input) {
+      id
+      laborTimezone
+      laborWorkdayStart
+      laborWorkdayEnd
+    }
+  }
+`
+
+// ─── Weekly labor efficiency ─────────────────────────────────────────────────
+
+export const WEEKLY_LABOR_EFFICIENCY = gql`
+  query WeeklyLaborEfficiency(
+    $projectId: String!
+    $tenantId: String!
+    $weekContainingDate: String!
+    $weekStartMode: WeekStartMode!
+    $assigneeId: String
+    $taskId: String
+  ) {
+    weeklyLaborEfficiency(
+      projectId: $projectId
+      tenantId: $tenantId
+      weekContainingDate: $weekContainingDate
+      weekStartMode: $weekStartMode
+      assigneeId: $assigneeId
+      taskId: $taskId
+    ) {
+      weekStart
+      weekEnd
+      weekLabel
+      timezone
+      laborConfigComplete
+      laborConfigWarning
+      plannedHours
+      actualHours
+      laborEfficiencyPercent
+      completedOfferLines
+      detailRows {
+        taskId
+        taskName
+        offerId
+        offerName
+        assigneeIds
+        plannedHours
+        actualHours
+        laborEfficiencyPercent
+        workCompletedAt
+      }
+      chartWeeks {
+        weekStart
+        weekEnd
+        weekLabel
+        plannedHours
+        actualHours
+        laborEfficiencyPercent
+      }
     }
   }
 `
