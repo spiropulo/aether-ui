@@ -31,6 +31,7 @@ export const GET_USER_PROFILES = gql`
         lastLogoutAt
         createdAt
         hourlyLaborRate
+        phoneNumber
       }
       total
       hasNext

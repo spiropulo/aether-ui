@@ -148,6 +148,7 @@ export const GET_TASKS = gql`
         calendarColor
         projectId
         tenantId
+        offerCompletionPercent
         createdAt
         updatedAt
       }
@@ -171,6 +172,7 @@ export const GET_TASK = gql`
       calendarColor
       projectId
       tenantId
+      offerCompletionPercent
       createdAt
       updatedAt
     }
@@ -245,6 +247,7 @@ export const GET_OFFERS = gql`
         duration
         total
         assigneeIds
+        workCompleted
         projectId
         taskId
         tenantId
@@ -255,6 +258,28 @@ export const GET_OFFERS = gql`
       hasNext
       limit
       offset
+    }
+  }
+`
+
+export const GET_OFFER = gql`
+  query GetOffer($id: ID!, $projectId: String!, $taskId: String!, $tenantId: String!) {
+    offer(id: $id, projectId: $projectId, taskId: $taskId, tenantId: $tenantId) {
+      id
+      name
+      description
+      uom
+      quantity
+      unitCost
+      duration
+      total
+      assigneeIds
+      workCompleted
+      projectId
+      taskId
+      tenantId
+      createdAt
+      updatedAt
     }
   }
 `
@@ -271,6 +296,7 @@ export const CREATE_OFFER = gql`
       duration
       total
       assigneeIds
+      workCompleted
       projectId
       taskId
       tenantId
@@ -291,6 +317,7 @@ export const UPDATE_OFFER = gql`
       duration
       total
       assigneeIds
+      workCompleted
       updatedAt
     }
   }
@@ -341,8 +368,11 @@ export const GET_PROJECT_EMAILS = gql`
       id
       projectId
       taskId
+      offerId
       senderId
       toEmails
+      toPhoneNumbers
+      deliveryChannels
       subject
       body
       sentAt
@@ -356,8 +386,11 @@ export const SEND_PROJECT_EMAIL = gql`
       id
       projectId
       taskId
+      offerId
       senderId
       toEmails
+      toPhoneNumbers
+      deliveryChannels
       subject
       body
       sentAt

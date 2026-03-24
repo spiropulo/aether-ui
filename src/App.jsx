@@ -26,13 +26,13 @@ import Dashboard from './pages/Dashboard'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import TaskDetail from './pages/TaskDetail'
+import OfferDetail from './pages/OfferDetail'
 import Team from './pages/Team'
 import UserDetail from './pages/UserDetail'
 import Training from './pages/Training'
 import Settings from './pages/Settings'
-import EstimateFromPdf from './pages/EstimateFromPdf'
-import PdfUploads from './pages/PdfUploads'
 import Tenants from './pages/admin/Tenants'
+import EstimatorAgentGuide from './pages/admin/EstimatorAgentGuide'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -104,18 +104,13 @@ export default function App() {
               }
             >
               <Route index element={<Navigate to="dashboard" replace />} />
-              <Route
-                path="estimate"
-                element={<AdminRoute><EstimateFromPdf /></AdminRoute>}
-              />
-              <Route
-                path="pdf-uploads"
-                element={<AdminRoute><PdfUploads /></AdminRoute>}
-              />
+              <Route path="estimate" element={<Navigate to="/app/projects" replace />} />
+              <Route path="pdf-uploads" element={<Navigate to="/app/projects" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="projects" element={<Projects />} />
               <Route path="projects/:projectId" element={<ProjectDetail />} />
               <Route path="projects/:projectId/tasks/:taskId" element={<TaskDetail />} />
+              <Route path="projects/:projectId/tasks/:taskId/offers/:offerId" element={<OfferDetail />} />
               <Route path="team" element={<Team />} />
               <Route path="team/:userId" element={<UserDetail />} />
               <Route
@@ -126,6 +121,10 @@ export default function App() {
               <Route
                 path="admin/tenants"
                 element={<AdminRoute><Tenants /></AdminRoute>}
+              />
+              <Route
+                path="admin/train-estimator"
+                element={<AdminRoute><EstimatorAgentGuide /></AdminRoute>}
               />
             </Route>
 

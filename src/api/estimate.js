@@ -1,9 +1,9 @@
 /**
  * REST API for PDF estimate upload and management.
- * POST   /api/v1/estimate/process — uploads a PDF; backend creates project + tasks asynchronously.
- * GET    /api/v1/estimate/uploads — list all PDF uploads for a tenant.
+ * POST   /api/v1/estimate/projects/:id/sync-pdf — uploads a PDF; imports into that project (Project PDF Sync agent).
+ * GET    /api/v1/estimate/projects/:projectId/uploads — list PDF uploads for a project.
  * GET    /api/v1/estimate/uploads/:id/download — download a PDF by upload ID.
- * DELETE /api/v1/estimate/uploads/:id — delete a PDF upload record.
+ * DELETE /api/v1/estimate/projects/:projectId/uploads/:id — delete a project-scoped upload.
  */
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
@@ -19,9 +19,12 @@ function extractErrorMessage(data, status) {
   return data.detail ?? data.message ?? data.error ?? `Upload failed (${status})`
 }
 
-export async function uploadEstimatePdf(file, { tenantId, uploadedBy, token } = {}) {
+/**
+ * Queue a PDF import into an existing project (async via Pub/Sub + Project PDF Sync agent).
+ * POST /api/v1/estimate/projects/:projectId/sync-pdf
+ */
+export async function syncProjectFromPdf(projectId, file, { tenantId, uploadedBy, token } = {}) {
   const form = new FormData()
-  // Ensure File has explicit type so multipart part gets Content-Type (fixes "Missing content type" error)
   const fileToUpload = (file instanceof File && file.type)
     ? file
     : new File([file], file.name || 'estimate.pdf', { type: 'application/pdf' })
@@ -32,7 +35,7 @@ export async function uploadEstimatePdf(file, { tenantId, uploadedBy, token } = 
   if (uploadedBy) params.set('uploaded_by', uploadedBy)
   const query = params.toString()
 
-  const url = `${BASE}/v1/estimate/process${query ? `?${query}` : ''}`
+  const url = `${BASE}/v1/estimate/projects/${encodeURIComponent(projectId)}/sync-pdf${query ? `?${query}` : ''}`
   const headers = {}
   if (token) headers.Authorization = `Bearer ${token}`
 
@@ -52,7 +55,6 @@ export async function uploadEstimatePdf(file, { tenantId, uploadedBy, token } = 
     const msg = extractErrorMessage(data, res.status)
     throw new Error(msg)
   }
-  // 202 Accepted: PDF uploaded, queued for async processing (PdfUploadAcknowledgment)
   return data
 }
 
@@ -73,19 +75,18 @@ export async function getPdfUpload(uploadId, tenantId, { token } = {}) {
 }
 
 /**
- * List all PDF uploads for the current tenant.
+ * List PDF uploads for a single project (import/sync), newest first.
  */
-export async function getPdfUploads(tenantId, { token } = {}) {
-  const url = `${BASE}/v1/estimate/uploads?tenant_id=${encodeURIComponent(tenantId)}`
+export async function getPdfUploadsForProject(projectId, tenantId, { token } = {}) {
+  const url = `${BASE}/v1/estimate/projects/${encodeURIComponent(projectId)}/uploads?tenant_id=${encodeURIComponent(tenantId)}`
   const headers = {}
   if (token) headers.Authorization = `Bearer ${token}`
 
   const res = await fetch(url, { headers })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error(data.detail ?? data.message ?? `Failed to list uploads (${res.status})`)
+    throw new Error(data.detail ?? data.message ?? `Failed to list project uploads (${res.status})`)
   }
-  // Backend may return array or { items: [...] }
   return Array.isArray(data) ? data : (data?.items ?? data?.uploads ?? [])
 }
 
@@ -163,15 +164,15 @@ export async function exportProjectPdf(projectId, tenantId, { token } = {}) {
 }
 
 /**
- * Delete a PDF upload record by ID.
- * DELETE /api/v1/estimate/uploads/:id
+ * Delete a PDF upload that belongs to the given project.
  */
-export async function deletePdfUpload(uploadId, tenantId, { token } = {}) {
-  const url = `${BASE}/v1/estimate/uploads/${encodeURIComponent(uploadId)}?tenant_id=${encodeURIComponent(tenantId)}`
+export async function deletePdfUploadForProject(projectId, uploadId, tenantId, { token } = {}) {
+  const url = `${BASE}/v1/estimate/projects/${encodeURIComponent(projectId)}/uploads/${encodeURIComponent(uploadId)}?tenant_id=${encodeURIComponent(tenantId)}`
   const headers = {}
   if (token) headers.Authorization = `Bearer ${token}`
 
   const res = await fetch(url, { method: 'DELETE', headers })
+  if (res.status === 204) return
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error(data.detail ?? data.message ?? `Failed to delete upload (${res.status})`)

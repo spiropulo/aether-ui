@@ -1,19 +1,24 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@apollo/client/react'
 import { useAuth } from '../context/AuthContext'
 import {
   GET_PROJECT,
   GET_TASK,
+  GET_TASKS,
   UPDATE_TASK,
   GET_OFFERS,
   GET_OFFERS_BY_PROJECT,
   CREATE_OFFER,
   UPDATE_OFFER,
   DELETE_OFFER,
+  GET_PROJECT_EMAILS,
+  SEND_PROJECT_EMAIL,
 } from '../api/projects'
 import { GET_USER_PROFILES } from '../api/users'
-import AssigneeSelector from '../components/ui/AssigneeSelector'
+import EmailComposeModal from '../components/EmailComposeModal'
+import OfferForm from '../components/OfferForm'
+import ProjectMessageHistoryItem from '../components/ProjectMessageHistoryItem'
 import Modal from '../components/ui/Modal'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
@@ -35,6 +40,75 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function normalizePhoneForSms(phone) {
+  if (!phone || typeof phone !== 'string') return null
+  const t = phone.trim()
+  if (!t) return null
+  if (t.startsWith('+')) {
+    const rest = t.slice(1).replace(/\D/g, '')
+    return rest ? `+${rest}` : null
+  }
+  const digits = t.replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  if (digits.length >= 10) return `+${digits}`
+  return null
+}
+
+function memberDisplayName(m) {
+  if (!m) return 'Unknown member'
+  return (
+    m.displayName ||
+    [m.firstName, m.lastName].filter(Boolean).join(' ').trim() ||
+    m.username ||
+    m.email ||
+    m.id
+  )
+}
+
+/** Unique assignee IDs from this task's offers, in first-seen order (for messaging). */
+function uniqueAssigneeIdsFromOffers(offers) {
+  const seen = new Set()
+  const out = []
+  for (const o of offers ?? []) {
+    for (const id of o.assigneeIds ?? []) {
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      out.push(id)
+    }
+  }
+  return out
+}
+
+function messageRecipientMembers(assigneeIds, teamMembers) {
+  const seen = new Set()
+  const out = []
+  for (const id of assigneeIds ?? []) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    const m = teamMembers.find((t) => t.id === id)
+    const emailRaw = m?.email?.trim()
+    const email = emailRaw || null
+    const phoneE164 = m?.phoneNumber ? normalizePhoneForSms(m.phoneNumber) : null
+    out.push({
+      id,
+      displayName: memberDisplayName(m),
+      email,
+      phoneE164,
+    })
+  }
+  return out
+}
+
+function taskOfferMessageRecipients(offers, teamMembers) {
+  return messageRecipientMembers(uniqueAssigneeIdsFromOffers(offers), teamMembers)
+}
+
+function formatOfferCompletionPercent(pct) {
+  if (pct == null) return null
+  return `${Math.round(pct)}% of offers complete`
+}
+
 function getDaysInMonth(year, month) {
   const first = new Date(year, month, 1)
   const last = new Date(year, month + 1, 0)
@@ -50,8 +124,22 @@ function parseDateOnly(dateStr) {
   return new Date(parts[0], parts[1] - 1, parts[2])
 }
 
-// ─── Task calendar (single task) ───────────────────────────────────────────────
-function TaskCalendar({ task, onUpdate, updating }) {
+/** Tasks active on a given calendar day (local date), same rules as project calendar */
+function taskSpansDay(t, year, month, day) {
+  if (!t.startDate && !t.endDate) return false
+  const cell = new Date(year, month, day)
+  cell.setHours(0, 0, 0, 0)
+  const start = parseDateOnly(t.startDate)
+  const end = t.endDate ? parseDateOnly(t.endDate) : null
+  const endDay = end ? new Date(end) : null
+  if (endDay) endDay.setHours(23, 59, 59, 999)
+  if (start && cell < start) return false
+  if (endDay && cell > endDay) return false
+  return true
+}
+
+// ─── Task calendar (this task + other project tasks with dates) ───────────────
+function TaskCalendar({ task, projectId, projectTasks = [], onUpdate, updating }) {
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date()
     if (task?.startDate) {
@@ -61,24 +149,26 @@ function TaskCalendar({ task, onUpdate, updating }) {
     return { year: d.getFullYear(), month: d.getMonth() }
   })
 
-  const hasDates = task?.startDate || task?.endDate
+  const currentId = task?.id
+  const tasksWithDates = projectTasks.filter((t) => t.startDate || t.endDate)
+  const showGrid = tasksWithDates.length > 0
+  const hasOwnDates = !!(task?.startDate || task?.endDate)
+
   const { startPad, days } = getDaysInMonth(viewDate.year, viewDate.month)
   const monthName = new Date(viewDate.year, viewDate.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   const today = new Date()
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  const color = task?.calendarColor || '#6366F1'
 
-  const isTaskOnDay = (d) => {
-    if (!hasDates) return false
-    const cell = new Date(viewDate.year, viewDate.month, d)
-    cell.setHours(0, 0, 0, 0)
-    const start = parseDateOnly(task.startDate)
-    const end = task.endDate ? parseDateOnly(task.endDate) : null
-    const endDay = end ? new Date(end) : null
-    if (endDay) endDay.setHours(23, 59, 59, 999)
-    if (start && cell < start) return false
-    if (endDay && cell > endDay) return false
-    return true
+  const tasksByDay = {}
+  for (let d = 1; d <= days; d++) {
+    const dateStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    const onDay = tasksWithDates.filter((t) => taskSpansDay(t, viewDate.year, viewDate.month, d))
+    onDay.sort((a, b) => {
+      if (a.id === currentId) return -1
+      if (b.id === currentId) return 1
+      return (a.name || '').localeCompare(b.name || '')
+    })
+    tasksByDay[dateStr] = onDay
   }
 
   const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -101,7 +191,7 @@ function TaskCalendar({ task, onUpdate, updating }) {
     <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <h3 className="text-sm font-semibold text-gray-900">Task timeline</h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <button
             onClick={() => setViewDate((v) => (v.month === 0 ? { year: v.year - 1, month: 11 } : { ...v, month: v.month - 1 }))}
             className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
@@ -120,6 +210,13 @@ function TaskCalendar({ task, onUpdate, updating }) {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewDate({ year: today.getFullYear(), month: today.getMonth() })}
+            className="px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+          >
+            Today
           </button>
         </div>
       </div>
@@ -154,11 +251,18 @@ function TaskCalendar({ task, onUpdate, updating }) {
             {updating && <Spinner size="sm" />}
           </div>
         )}
-        {hasDates ? (
+        {hasOwnDates && (
+          <p className="text-xs text-gray-500 mb-3">
+            This task: {task.startDate ? formatDate(task.startDate) : '?'} — {task.endDate ? formatDate(task.endDate) : '?'}
+          </p>
+        )}
+        {showGrid ? (
           <>
-            <p className="text-xs text-gray-500 mb-3">
-              {task.startDate ? formatDate(task.startDate) : '?'} — {task.endDate ? formatDate(task.endDate) : '?'}
-            </p>
+            {!hasOwnDates && (
+              <p className="text-xs text-gray-500 mb-3">
+                Other tasks on this project are shown below. Add dates for this task to include it on the calendar.
+              </p>
+            )}
             <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-lg overflow-hidden">
               {dayHeaders.map((h) => (
                 <div key={h} className="bg-gray-50 px-1 py-1.5 text-center text-xs font-semibold text-gray-500 uppercase">
@@ -166,22 +270,63 @@ function TaskCalendar({ task, onUpdate, updating }) {
                 </div>
               ))}
               {Array.from({ length: startPad }, (_, i) => (
-                <div key={`pad-${i}`} className="bg-gray-50 min-h-[48px] p-1" />
+                <div key={`pad-${i}`} className="bg-gray-50 min-h-[72px] p-1" />
               ))}
               {Array.from({ length: days }, (_, i) => {
                 const d = i + 1
                 const dateStr = `${viewDate.year}-${String(viewDate.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
-                const highlighted = isTaskOnDay(d)
+                const dayTasks = tasksByDay[dateStr] ?? []
                 const isToday = dateStr === todayStr
                 return (
                   <div
                     key={d}
-                    className={`min-h-[48px] p-1 flex items-center justify-center text-sm ${
-                      isToday ? 'ring-2 ring-indigo-400 ring-inset rounded' : ''
-                    } ${highlighted ? 'font-semibold' : 'text-gray-400'}`}
-                    style={highlighted ? { backgroundColor: `${color}25`, color } : { backgroundColor: 'white' }}
+                    className={`min-h-[72px] p-1.5 bg-white ${isToday ? 'ring-2 ring-indigo-400 ring-inset rounded' : ''}`}
                   >
-                    {d}
+                    <span
+                      className={`inline-flex w-6 h-6 items-center justify-center rounded-full text-xs font-medium ${
+                        isToday ? 'bg-indigo-600 text-white' : 'text-gray-700'
+                      }`}
+                    >
+                      {d}
+                    </span>
+                    <div className="mt-1 space-y-0.5">
+                      {dayTasks.slice(0, 3).map((t) => {
+                        const c = t.calendarColor || '#6366F1'
+                        const isCurrent = t.id === currentId
+                        const chipStyle = {
+                          backgroundColor: `${c}20`,
+                          color: c,
+                          borderLeft: `3px solid ${c}`,
+                        }
+                        const title = `${t.name} — ${t.startDate ? formatDate(t.startDate) : '?'} to ${t.endDate ? formatDate(t.endDate) : '?'}`
+                        if (isCurrent) {
+                          return (
+                            <div
+                              key={t.id}
+                              className="truncate text-[10px] leading-tight px-1 py-0.5 rounded font-semibold ring-1 ring-indigo-300/80"
+                              style={chipStyle}
+                              title={`${title} (this task)`}
+                            >
+                              {t.name}
+                            </div>
+                          )
+                        }
+                        return (
+                          <Link
+                            key={t.id}
+                            to={`/app/projects/${projectId}/tasks/${t.id}`}
+                            className="block truncate text-[10px] leading-tight px-1 py-0.5 rounded transition-opacity hover:opacity-90"
+                            style={chipStyle}
+                            title={title}
+                          >
+                            {t.name}
+                          </Link>
+                        )
+                      })}
+                      {dayTasks.length > 3 && (
+                        <span className="text-[10px] text-gray-500 px-0.5">+{dayTasks.length - 3} more</span>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -189,88 +334,13 @@ function TaskCalendar({ task, onUpdate, updating }) {
           </>
         ) : (
           <p className="text-sm text-gray-500 py-4">
-            {onUpdate ? 'Set start and end dates above to display on the calendar.' : 'No dates assigned. Edit the task to add start and end dates for the calendar.'}
+            {onUpdate
+              ? 'Set start and end dates above (for this task) to see the calendar. When any task on the project has dates, they all appear here.'
+              : 'No dates assigned on this project yet. Edit the task to add start and end dates for the calendar.'}
           </p>
         )}
       </div>
     </div>
-  )
-}
-
-// ─── Offer form ───────────────────────────────────────────────────────────────
-function OfferForm({ initial, onSubmit, loading, error, teamMembers, isAdmin = false }) {
-  const [form, setForm] = useState({
-    name: initial?.name ?? '',
-    description: initial?.description ?? '',
-    unitCost: initial?.unitCost != null && !Number.isNaN(initial.unitCost) ? String(initial.unitCost) : '',
-    assigneeIds: initial?.assigneeIds ?? [],
-  })
-  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
-
-  const costNum = form.unitCost !== '' ? parseFloat(form.unitCost) : null
-  const previewTotal = isAdmin && costNum != null && !Number.isNaN(costNum) ? costNum : null
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    let uc
-    let quantity
-    if (isAdmin) {
-      uc = form.unitCost !== '' ? parseFloat(form.unitCost) : null
-      quantity = uc != null && !Number.isNaN(uc) ? 1 : null
-    } else if (initial) {
-      uc = initial.unitCost != null && !Number.isNaN(initial.unitCost) ? initial.unitCost : null
-      quantity = initial.quantity != null ? initial.quantity : null
-    } else {
-      uc = null
-      quantity = null
-    }
-    onSubmit({
-      name: form.name.trim(),
-      description: form.description.trim() || null,
-      uom: null,
-      quantity,
-      unitCost: uc != null && !Number.isNaN(uc) ? uc : null,
-      duration: null,
-      assigneeIds: form.assigneeIds ?? [],
-    })
-  }
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Alert message={error} />
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Name *</label>
-        <input name="name" required value={form.name} onChange={handleChange} placeholder="e.g. Industrial Drill or Consulting" className={inputClass} />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
-        <textarea name="description" value={form.description} onChange={handleChange} rows={5} placeholder="Detailed specs or scope of work…" className={`${inputClass} resize-y min-h-[100px]`} />
-      </div>
-      {isAdmin && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Cost</label>
-          <input name="unitCost" type="number" step="0.01" min="0" value={form.unitCost} onChange={handleChange} placeholder="0.00" className={inputClass} />
-        </div>
-      )}
-      {teamMembers && (
-        <AssigneeSelector
-          teamMembers={teamMembers}
-          value={form.assigneeIds}
-          onChange={(ids) => setForm((p) => ({ ...p, assigneeIds: ids }))}
-        />
-      )}
-      {previewTotal != null && (
-        <div className="flex items-center justify-between bg-indigo-50 rounded-xl px-4 py-2.5 text-sm">
-          <span className="text-indigo-600 font-medium">Total</span>
-          <span className="font-bold text-indigo-700">{formatCurrency(previewTotal)}</span>
-        </div>
-      )}
-      <div className="flex justify-end pt-2">
-        <button type="submit" disabled={loading} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors disabled:opacity-60">
-          {loading && <Spinner size="sm" />}
-          {initial ? 'Save changes' : 'Add offer'}
-        </button>
-      </div>
-    </form>
   )
 }
 
@@ -468,6 +538,10 @@ export default function TaskDetail() {
   const [descriptionEditTarget, setDescriptionEditTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [mutationError, setMutationError] = useState(null)
+  const [taskMainTab, setTaskMainTab] = useState('offers')
+  const [emailModal, setEmailModal] = useState(null)
+  const [emailSearch, setEmailSearch] = useState('')
+  const [emailSearchInput, setEmailSearchInput] = useState('')
 
   const { data: projectData } = useQuery(GET_PROJECT, { variables: { id: projectId, tenantId }, skip: !tenantId })
   const { data: teamData } = useQuery(GET_USER_PROFILES, {
@@ -479,18 +553,32 @@ export default function TaskDetail() {
     variables: { id: taskId, projectId, tenantId },
     skip: !tenantId,
   })
+  const { data: projectTasksData, refetch: refetchProjectTasks } = useQuery(GET_TASKS, {
+    variables: { projectId, tenantId, page: { limit: 200, offset: 0 } },
+    skip: !tenantId || !projectId,
+  })
   const { data: offersData, loading: offersLoading, refetch: refetchOffers } = useQuery(GET_OFFERS, {
     variables: { projectId, taskId, tenantId, page: { limit: 100, offset: 0 } },
     skip: !tenantId,
   })
+  const { data: emailsData, refetch: refetchEmails } = useQuery(GET_PROJECT_EMAILS, {
+    variables: { projectId, tenantId },
+    skip: !tenantId || !projectId,
+  })
 
   const [updateTask, { loading: updatingTask }] = useMutation(UPDATE_TASK, {
-    onCompleted: () => { setTaskModal(false); refetchTask() },
+    onCompleted: () => {
+      setTaskModal(false)
+      refetchTask()
+      refetchProjectTasks()
+    },
     onError: (e) => setMutationError(e.message),
   })
 
   const offerRefetchQueries = [
     { query: GET_OFFERS_BY_PROJECT, variables: { projectId, tenantId } },
+    { query: GET_TASK, variables: { id: taskId, projectId, tenantId } },
+    { query: GET_TASKS, variables: { projectId, tenantId, page: { limit: 200, offset: 0 } } },
   ]
 
   const [createOffer, { loading: creatingOffer }] = useMutation(CREATE_OFFER, {
@@ -512,12 +600,49 @@ export default function TaskDetail() {
     onError: (e) => setMutationError(e.message),
   })
 
+  const [sendProjectEmail, { loading: sendingEmail }] = useMutation(SEND_PROJECT_EMAIL, {
+    onCompleted: () => {
+      setEmailModal(null)
+      refetchEmails()
+    },
+    onError: (e) => setMutationError(e.message),
+  })
+
   const project = projectData?.project
   const task = taskData?.task
   const offers = offersData?.offers?.items ?? []
   const pricingInProgress = project?.status === 'PRICING'
 
   const grandTotal = offers.reduce((s, o) => s + (o.total ?? 0), 0)
+
+  const taskOfferRecipients = useMemo(() => taskOfferMessageRecipients(offers, teamMembers), [offers, teamMembers])
+  const canMessageTaskOfferTeam = taskOfferRecipients.some((r) => r.email || r.phoneE164)
+  const taskOfferWithEmail = taskOfferRecipients.filter((r) => r.email).length
+  const taskOfferWithPhone = taskOfferRecipients.filter((r) => r.phoneE164).length
+
+  const projectEmails = emailsData?.projectEmails ?? []
+  const taskEmails = useMemo(
+    () => projectEmails.filter((e) => e.taskId === taskId && !e.offerId),
+    [projectEmails, taskId],
+  )
+  const emailSearchLower = emailSearch.trim().toLowerCase()
+  const filteredTaskEmails = useMemo(() => {
+    if (!emailSearchLower) return taskEmails
+    return taskEmails.filter((e) => {
+      const subject = (e.subject ?? '').toLowerCase()
+      const body = (e.body ?? '').toLowerCase()
+      const phones = (e.toPhoneNumbers ?? []).join(' ').toLowerCase()
+      const channels = (e.deliveryChannels ?? []).join(' ').toLowerCase()
+      const toStr = (e.toEmails ?? []).join(' ').toLowerCase()
+      return (
+        subject.includes(emailSearchLower) ||
+        body.includes(emailSearchLower) ||
+        toStr.includes(emailSearchLower) ||
+        phones.includes(emailSearchLower) ||
+        channels.includes(emailSearchLower)
+      )
+    })
+  }, [taskEmails, emailSearchLower])
 
   if (taskLoading) {
     return <div className="flex justify-center items-center h-64"><Spinner size="lg" /></div>
@@ -552,6 +677,9 @@ export default function TaskDetail() {
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-gray-900">{task?.name}</h1>
+            {task?.offerCompletionPercent != null && (
+              <p className="text-sm font-medium text-emerald-700 mt-1">{formatOfferCompletionPercent(task.offerCompletionPercent)}</p>
+            )}
             {task?.description && <p className="text-sm text-gray-500 mt-1">{task.description}</p>}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -581,6 +709,8 @@ export default function TaskDetail() {
         <div className={isAdmin ? 'lg:col-span-2' : ''}>
           <TaskCalendar
             task={task}
+            projectId={projectId}
+            projectTasks={projectTasksData?.tasks?.items ?? []}
             onUpdate={pricingInProgress ? undefined : (updates) =>
               updateTask({
                 variables: {
@@ -603,7 +733,139 @@ export default function TaskDetail() {
         </div>
       </div>
 
-      {/* Offers — full width, takes rest of page */}
+      {/* Offers vs Messages */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          type="button"
+          onClick={() => setTaskMainTab('offers')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+            taskMainTab === 'offers'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'bg-white text-gray-700 border border-gray-200 hover:border-indigo-200 hover:bg-indigo-50/40'
+          }`}
+        >
+          Offers
+          <span className={taskMainTab === 'offers' ? 'text-indigo-100' : 'text-gray-400 font-normal'}>({offers.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTaskMainTab('messages')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+            taskMainTab === 'messages'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'bg-white text-gray-700 border border-gray-200 hover:border-indigo-200 hover:bg-indigo-50/40'
+          }`}
+        >
+          Messages
+          <span className={taskMainTab === 'messages' ? 'text-indigo-100' : 'text-gray-400 font-normal'}>({taskEmails.length})</span>
+        </button>
+      </div>
+
+      {taskMainTab === 'messages' && (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-6">
+          <div className="flex flex-col gap-4 px-6 py-4 border-b border-gray-100">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <h2 className="text-base font-semibold text-gray-900">
+                Messages{' '}
+                <span className="text-gray-400 font-normal text-sm ml-1">
+                  ({filteredTaskEmails.length}
+                  {emailSearch ? ` of ${taskEmails.length}` : ''})
+                </span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!canMessageTaskOfferTeam || pricingInProgress) return
+                  setMutationError(null)
+                  setEmailModal({
+                    modalKey: Date.now(),
+                    recipients: taskOfferRecipients,
+                    defaultSubject: `Task: ${task?.name ?? 'Update'}`,
+                    defaultBody: `Hi,\n\nRegarding task "${task?.name ?? ''}" on project "${project?.name ?? ''}":\n\n`,
+                  })
+                }}
+                disabled={!canMessageTaskOfferTeam || pricingInProgress}
+                title={
+                  pricingInProgress
+                    ? 'Project is locked during pricing'
+                    : !canMessageTaskOfferTeam
+                      ? 'No reachable assignees: add people on offers for this task, with email and/or phone on their profile'
+                      : `${taskOfferRecipients.length} assignee(s) on offers (${taskOfferWithEmail} with email, ${taskOfferWithPhone} with text) — choose recipients in the modal`
+                }
+                className="inline-flex items-center justify-center gap-2 text-sm font-semibold bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600 w-full sm:w-auto"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Message offer assignees
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 -mt-1">
+              Recipients are everyone assigned on any offer on this task (with email and/or phone on their profile). History shows only messages sent from this task.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                setEmailSearch(emailSearchInput)
+              }}
+              className="flex flex-wrap gap-2 w-full max-w-xl"
+            >
+              <input
+                value={emailSearchInput}
+                onChange={(e) => setEmailSearchInput(e.target.value)}
+                placeholder="Search subject, recipients, body…"
+                className="flex-1 min-w-[12rem] rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition"
+              />
+              <button type="submit" className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl transition-colors">
+                Search
+              </button>
+              {emailSearch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmailSearch('')
+                    setEmailSearchInput('')
+                  }}
+                  className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700"
+                >
+                  Clear
+                </button>
+              )}
+            </form>
+          </div>
+          <div className="p-6">
+            {taskEmails.length === 0 ? (
+              <EmptyState
+                title="No messages for this task yet"
+                description="Use Message offer assignees when people are assigned on offers (with email and/or phone on their profile). Sent email and text appear here."
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                }
+              />
+            ) : filteredTaskEmails.length === 0 ? (
+              <EmptyState
+                title="No matching messages"
+                description="Try a different search term."
+                icon={
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                }
+              />
+            ) : (
+              <div className="space-y-4">
+                {filteredTaskEmails.map((e) => (
+                  <ProjectMessageHistoryItem key={e.id} email={e} formatDate={formatDate} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {taskMainTab === 'offers' && (
       <div className="flex flex-col min-h-[calc(100vh-18rem)]">
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden flex flex-col flex-1 min-h-0">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
@@ -629,14 +891,19 @@ export default function TaskDetail() {
               <SectionTable
                 headers={
                   isAdmin
-                    ? ['Name', 'Description', 'Cost', 'Assignees', 'Total']
-                    : ['Name', 'Description', 'Assignees']
+                    ? ['Name', 'Description', 'Cost', 'Assignees', 'Total', 'Done']
+                    : ['Name', 'Description', 'Assignees', 'Done']
                 }
                 rows={offers.map((offer) => ({
                   id: offer.id,
                   original: offer,
                   cells: [
-                    <span className="font-medium text-gray-900">{offer.name}</span>,
+                    <Link
+                      to={`/app/projects/${projectId}/tasks/${taskId}/offers/${offer.id}`}
+                      className="font-medium text-indigo-700 hover:text-indigo-900 hover:underline"
+                    >
+                      {offer.name}
+                    </Link>,
                     <button
                       type="button"
                       onClick={() => { if (!pricingInProgress) { setMutationError(null); setDescriptionEditTarget(offer) } }}
@@ -657,6 +924,28 @@ export default function TaskDetail() {
                               : '—'}
                           </span>,
                           <span key="t" className="font-medium text-gray-700">{formatCurrency(offer.total)}</span>,
+                          <span key="d" className="text-center">
+                            <input
+                              type="checkbox"
+                              checked={!!offer.workCompleted}
+                              disabled={pricingInProgress || updatingOffer}
+                              onChange={() => {
+                                setMutationError(null)
+                                updateOffer({
+                                  variables: {
+                                    id: offer.id,
+                                    projectId,
+                                    taskId,
+                                    tenantId,
+                                    input: { workCompleted: !offer.workCompleted },
+                                  },
+                                })
+                              }}
+                              title={pricingInProgress ? 'Project is locked during pricing' : 'Mark work complete'}
+                              aria-label={offer.workCompleted ? 'Mark offer not complete' : 'Mark offer complete'}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                            />
+                          </span>,
                         ]
                       : [
                           <span key="a" className="text-gray-500 text-xs">
@@ -665,6 +954,9 @@ export default function TaskDetail() {
                                   .map((id) => teamMembers.find((m) => m.id === id)?.displayName || teamMembers.find((m) => m.id === id)?.username || id)
                                   .join(', ') || '—'
                               : '—'}
+                          </span>,
+                          <span key="d" className={`text-sm ${offer.workCompleted ? 'text-emerald-600 font-medium' : 'text-gray-400'}`}>
+                            {offer.workCompleted ? 'Done' : '—'}
                           </span>,
                         ]),
                   ],
@@ -687,6 +979,7 @@ export default function TaskDetail() {
           )}
         </div>
       </div>
+      )}
 
       {/* Task edit modal */}
       <Modal open={taskModal} onClose={() => setTaskModal(false)} title="Edit task" maxWidth="max-w-xl">
@@ -706,6 +999,7 @@ export default function TaskDetail() {
       <Modal open={!!offerModal} onClose={() => setOfferModal(null)} title={offerModal?.mode === 'create' ? 'Add offer' : 'Edit offer'} maxWidth="max-w-2xl">
         {offerModal && (
           <OfferForm
+            key={offerModal.mode === 'edit' ? offerModal.offer.id : 'create'}
             initial={offerModal.offer}
             teamMembers={teamMembers}
             isAdmin={isAdmin}
@@ -765,6 +1059,39 @@ export default function TaskDetail() {
         message={`Are you sure you want to delete "${deleteTarget?.item?.name}"?`}
         onConfirm={() => {
           if (deleteTarget?.type === 'offer') deleteOffer({ variables: { id: deleteTarget.item.id, projectId, taskId, tenantId } })
+        }}
+      />
+
+      <EmailComposeModal
+        key={emailModal?.modalKey ?? 'closed'}
+        open={!!emailModal}
+        onClose={() => {
+          setEmailModal(null)
+          setMutationError(null)
+        }}
+        recipients={emailModal?.recipients ?? []}
+        defaultSubject={emailModal?.defaultSubject ?? ''}
+        defaultBody={emailModal?.defaultBody ?? ''}
+        sending={sendingEmail}
+        error={mutationError}
+        onSend={({ subject, body, sendEmail, sendSms, toEmails, toPhoneNumbers }) => {
+          setMutationError(null)
+          sendProjectEmail({
+            variables: {
+              input: {
+                tenantId,
+                projectId,
+                taskId,
+                senderId: user?.id,
+                toEmails: sendEmail ? toEmails : [],
+                toPhoneNumbers: sendSms ? toPhoneNumbers : [],
+                sendEmail,
+                sendSms,
+                subject: sendEmail ? subject : null,
+                body,
+              },
+            },
+          })
         }}
       />
     </div>

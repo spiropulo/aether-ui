@@ -300,7 +300,10 @@ export default function Training() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">AI Training Data</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Manage the data that guides AI models for project estimation and support
+          Manage the data that guides AI models for project estimation and support.{' '}
+          <Link to="/app/admin/train-estimator" className="text-indigo-600 font-medium hover:text-indigo-500 whitespace-nowrap">
+            Train Estimator guide (visual) →
+          </Link>
         </p>
       </div>
 

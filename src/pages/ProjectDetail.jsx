@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@apollo/client/react'
 import { useAuth } from '../context/AuthContext'
@@ -22,8 +22,17 @@ import {
   PROJECT_STATUS_OPTIONS,
 } from '../api/projects'
 import { GET_USER_PROFILES } from '../api/users'
-import { downloadPdf, requestProjectPricing, exportProjectPdf } from '../api/estimate'
+import {
+  downloadPdf,
+  getPdfUpload,
+  getPdfUploadsForProject,
+  deletePdfUploadForProject,
+  requestProjectPricing,
+  exportProjectPdf,
+  syncProjectFromPdf,
+} from '../api/estimate'
 import EmailComposeModal from '../components/EmailComposeModal'
+import ProjectMessageHistoryItem from '../components/ProjectMessageHistoryItem'
 import {
   GET_TENANT_TRAINING,
   GET_PROJECT_TRAINING,
@@ -63,6 +72,86 @@ function parseDateOnly(dateStr) {
 function formatCurrency(n) {
   if (n == null || Number.isNaN(n)) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n)
+}
+
+function formatBytes(n) {
+  if (n == null || Number.isNaN(n)) return '—'
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** Align loosely with server E.164 normalization for deduping SMS recipients in the UI. */
+function normalizePhoneForSms(phone) {
+  if (!phone || typeof phone !== 'string') return null
+  const t = phone.trim()
+  if (!t) return null
+  if (t.startsWith('+')) {
+    const rest = t.slice(1).replace(/\D/g, '')
+    return rest ? `+${rest}` : null
+  }
+  const digits = t.replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  if (digits.length >= 10) return `+${digits}`
+  return null
+}
+
+function memberDisplayName(m) {
+  if (!m) return 'Unknown member'
+  return (
+    m.displayName ||
+    [m.firstName, m.lastName].filter(Boolean).join(' ').trim() ||
+    m.username ||
+    m.email ||
+    m.id
+  )
+}
+
+/** One row per unique assignee, with resolved contacts for the message modal. */
+function messageRecipientMembers(assigneeIds, teamMembers) {
+  const seen = new Set()
+  const out = []
+  for (const id of assigneeIds ?? []) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    const m = teamMembers.find((t) => t.id === id)
+    const emailRaw = m?.email?.trim()
+    const email = emailRaw || null
+    const phoneE164 = m?.phoneNumber ? normalizePhoneForSms(m.phoneNumber) : null
+    out.push({
+      id,
+      displayName: memberDisplayName(m),
+      email,
+      phoneE164,
+    })
+  }
+  return out
+}
+
+function messageTargetsForAssigneeIds(assigneeIds, teamMembers) {
+  const members = messageRecipientMembers(assigneeIds, teamMembers)
+  const toEmails = [...new Set(members.map((r) => r.email).filter(Boolean))]
+  const toPhoneNumbers = [...new Set(members.map((r) => r.phoneE164).filter(Boolean))]
+  return { toEmails, toPhoneNumbers, members }
+}
+
+function formatDateTime(d) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const PDF_STATUS_LABELS = {
+  PENDING: { label: 'Queued', color: 'bg-gray-100 text-gray-700' },
+  PROCESSING: { label: 'Processing', color: 'bg-amber-100 text-amber-800' },
+  COMPLETED: { label: 'Completed', color: 'bg-emerald-100 text-emerald-800' },
+  FAILED: { label: 'Failed', color: 'bg-red-100 text-red-800' },
 }
 
 function offerAmount(offer) {
@@ -705,18 +794,25 @@ export default function ProjectDetail() {
   const [taskModal, setTaskModal] = useState(null)
   const [trainingModal, setTrainingModal] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [downloadingPdfId, setDownloadingPdfId] = useState(null)
   const [exportingPdf, setExportingPdf] = useState(false)
   const [pricingLoading, setPricingLoading] = useState(false)
   const [pricingResult, setPricingResult] = useState(null)
   const [pricingModal, setPricingModal] = useState(false)
-  const [sourcePdfBannerHidden, setSourcePdfBannerHidden] = useState(false)
-  const [emailModal, setEmailModal] = useState(null) // { type: 'project'|'task', taskId?, taskName?, toEmails }
+  const [projectPdfs, setProjectPdfs] = useState([])
+  const [projectPdfsLoading, setProjectPdfsLoading] = useState(false)
+  const [projectPdfsError, setProjectPdfsError] = useState(null)
+  const [deleteProjectPdfTarget, setDeleteProjectPdfTarget] = useState(null)
+  const [deletingProjectPdf, setDeletingProjectPdf] = useState(false)
+  const [emailModal, setEmailModal] = useState(null) // { type, taskId?, taskName?, recipients, modalKey, defaultSubject, defaultBody }
   const [emailSearch, setEmailSearch] = useState('')
   const [emailSearchInput, setEmailSearchInput] = useState('')
   const [pricingRunsSearch, setPricingRunsSearch] = useState('')
   const [pricingRunsSearchInput, setPricingRunsSearchInput] = useState('')
   const [pricingConfirmOpen, setPricingConfirmOpen] = useState(false)
+  const [exportPdfConfirmOpen, setExportPdfConfirmOpen] = useState(false)
+  const pdfImportInputRef = useRef(null)
+  const [pdfImportBusy, setPdfImportBusy] = useState(false)
   const [deletePricingRunTarget, setDeletePricingRunTarget] = useState(null)
   const [deleteAllPricingRunsOpen, setDeleteAllPricingRunsOpen] = useState(false)
 
@@ -742,11 +838,6 @@ export default function ProjectDetail() {
   useEffect(() => {
     setTaskOffset(0)
   }, [taskSearch, taskSortBy, taskSortDir])
-
-  useEffect(() => {
-    if (!projectId || typeof window === 'undefined') return
-    setSourcePdfBannerHidden(localStorage.getItem(`aether_hide_source_pdf_${projectId}`) === 'true')
-  }, [projectId])
 
   useEffect(() => {
     if (!isAdmin && (activeTab === 'training' || activeTab === 'pricingRuns')) {
@@ -776,6 +867,13 @@ export default function ProjectDetail() {
   const { data: offersByProjectData, refetch: refetchOffers } = useQuery(GET_OFFERS_BY_PROJECT, {
     variables: { tenantId, projectId },
     skip: !tenantId || !projectId,
+    fetchPolicy: 'network-only',
+  })
+
+  /** Up to 500 tasks — used on PDFs tab to require ≥1 task with ≥1 offer before client export. */
+  const { data: exportClientTasksData, loading: exportClientTasksLoading } = useQuery(GET_TASKS, {
+    variables: { projectId, tenantId, page: { limit: 500, offset: 0 } },
+    skip: !tenantId || !projectId || activeTab !== 'pdfs',
     fetchPolicy: 'network-only',
   })
 
@@ -815,8 +913,16 @@ export default function ProjectDetail() {
     ? projectEmails.filter((e) => {
         const subject = (e.subject ?? '').toLowerCase()
         const body = (e.body ?? '').toLowerCase()
+        const phones = (e.toPhoneNumbers ?? []).join(' ').toLowerCase()
+        const channels = (e.deliveryChannels ?? []).join(' ').toLowerCase()
         const toStr = (e.toEmails ?? []).join(' ').toLowerCase()
-        return subject.includes(emailSearchLower) || body.includes(emailSearchLower) || toStr.includes(emailSearchLower)
+        return (
+          subject.includes(emailSearchLower) ||
+          body.includes(emailSearchLower) ||
+          toStr.includes(emailSearchLower) ||
+          phones.includes(emailSearchLower) ||
+          channels.includes(emailSearchLower)
+        )
       })
     : projectEmails
 
@@ -909,6 +1015,29 @@ export default function ProjectDetail() {
     onError: (e) => setMutationError(e.message),
   })
 
+  const loadProjectPdfs = useCallback(async () => {
+    if (!tenantId || !projectId) return
+    setProjectPdfsLoading(true)
+    setProjectPdfsError(null)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+      const data = await getPdfUploadsForProject(projectId, tenantId, { token })
+      setProjectPdfs(data)
+    } catch (e) {
+      setProjectPdfsError(e.message)
+      setProjectPdfs([])
+    } finally {
+      setProjectPdfsLoading(false)
+    }
+  }, [tenantId, projectId])
+
+  useEffect(() => {
+    if (activeTab !== 'pdfs') return
+    loadProjectPdfs()
+    const t = setInterval(loadProjectPdfs, 10000)
+    return () => clearInterval(t)
+  }, [activeTab, loadProjectPdfs])
+
   const project = projectData?.project
   const displayStatus = statusPollData?.project?.status ?? project?.status
   const sourcePdfUploadId = statusPollData?.project?.sourcePdfUploadId ?? project?.sourcePdfUploadId
@@ -971,24 +1100,92 @@ export default function ProjectDetail() {
     }
   }
 
-  const handleDownloadSourcePdf = async () => {
-    if (!sourcePdfUploadId || !tenantId) return
-    setDownloadingPdf(true)
+  const handleDownloadProjectPdfRow = async (upload) => {
+    if (!tenantId) return
+    setDownloadingPdfId(upload.id)
+    setProjectPdfsError(null)
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
-      const blob = await downloadPdf(sourcePdfUploadId, tenantId, { token })
+      const blob = await downloadPdf(upload.id, tenantId, { token })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `project-${project?.name || 'estimate'}.pdf`.replace(/[^a-zA-Z0-9.-]/g, '_')
+      a.download = upload.fileName || 'estimate.pdf'
       a.click()
       URL.revokeObjectURL(url)
     } catch (err) {
-      setMutationError(err.message)
+      setProjectPdfsError(err.message)
     } finally {
-      setDownloadingPdf(false)
+      setDownloadingPdfId(null)
     }
   }
+
+  const handleConfirmDeleteProjectPdf = async () => {
+    if (!deleteProjectPdfTarget || !tenantId || !projectId) return
+    setDeletingProjectPdf(true)
+    setProjectPdfsError(null)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+      await deletePdfUploadForProject(projectId, deleteProjectPdfTarget.id, tenantId, { token })
+      setDeleteProjectPdfTarget(null)
+      await loadProjectPdfs()
+      await refetchProject()
+    } catch (err) {
+      setProjectPdfsError(err.message)
+    } finally {
+      setDeletingProjectPdf(false)
+    }
+  }
+
+  const pollPdfImportUntilDone = async (uploadId) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+    const maxAttempts = 300
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const rec = await getPdfUpload(uploadId, tenantId, { token })
+      const st = rec?.status
+      if (st === 'COMPLETED') return
+      if (st === 'FAILED') throw new Error('PDF import failed. Check the upload record or try again.')
+    }
+    throw new Error('Timed out waiting for PDF import. Try refreshing the page.')
+  }
+
+  const handlePdfImportChange = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !projectId || !tenantId) return
+    if (file.type !== 'application/pdf') {
+      setMutationError('Only PDF files are accepted.')
+      return
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setMutationError('File exceeds the 20 MB limit.')
+      return
+    }
+    setMutationError(null)
+    setPdfImportBusy(true)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('aether_token') : null
+      const ack = await syncProjectFromPdf(projectId, file, {
+        tenantId,
+        uploadedBy: user?.id ?? user?.username,
+        token,
+      })
+      const refId = ack.referenceId ?? ack.reference_id
+      if (!refId) throw new Error('No upload reference returned.')
+      await pollPdfImportUntilDone(refId)
+      await refetchProject()
+      await refetchTasks()
+      await refetchOffers()
+      await loadProjectPdfs()
+      if (activeTab === 'calendar') await refetchCalendarTasks()
+    } catch (err) {
+      setMutationError(err.message)
+    } finally {
+      setPdfImportBusy(false)
+    }
+  }
+
   const rawTasks = tasksData?.tasks?.items ?? []
   const rawTaskTotal = tasksData?.tasks?.total ?? 0
 
@@ -1029,18 +1226,22 @@ export default function ProjectDetail() {
     }
   }
 
+  const exportClientTaskIdSet = new Set(
+    (exportClientTasksData?.tasks?.items ?? []).map((t) => t.id).filter(Boolean),
+  )
+  const canExportForClient =
+    !exportClientTasksLoading &&
+    offersByProject.some((o) => o.taskId && exportClientTaskIdSet.has(o.taskId))
+
   const allTasksForMessaging = calendarTasksData?.tasks?.items ?? tasksData?.tasks?.items ?? []
   const projectMessageAssigneeIds = [...new Set([
     ...allTasksForMessaging.flatMap((t) => t.assigneeIds ?? []),
     ...offersByProject.flatMap((o) => o.assigneeIds ?? []),
   ])]
-  const projectAssigneeEmails = [
-    ...new Set(
-      projectMessageAssigneeIds
-        .map((id) => teamMembers.find((m) => m.id === id)?.email)
-        .filter(Boolean),
-    ),
-  ]
+  const { members: projectRecipients } = messageTargetsForAssigneeIds(projectMessageAssigneeIds, teamMembers)
+  const canMessageProjectTeam = projectRecipients.some((r) => r.email || r.phoneE164)
+  const projectWithEmail = projectRecipients.filter((r) => r.email).length
+  const projectWithPhone = projectRecipients.filter((r) => r.phoneE164).length
 
   const trainingTotal = trainingData?.projectTrainingData?.total ?? 0
 
@@ -1115,100 +1316,6 @@ export default function ProjectDetail() {
                   {[project.addressLine1, project.addressLine2, [project.city, project.state, project.postalCode].filter(Boolean).join(', '), project.country].filter(Boolean).join(', ')}
                 </span>
               </div>
-            )}
-            <div className="mt-4 flex flex-wrap gap-3 items-center">
-              <button
-                type="button"
-                onClick={() => {
-                  if (projectAssigneeEmails.length === 0) return
-                  setEmailModal({
-                    type: 'project',
-                    toEmails: projectAssigneeEmails,
-                    defaultSubject: `Project: ${project?.name ?? 'Estimate'}`,
-                    defaultBody: `Hi,\n\nRegarding project "${project?.name ?? ''}":\n\n`,
-                  })
-                }}
-                disabled={projectAssigneeEmails.length === 0}
-                title={projectAssigneeEmails.length === 0 ? 'No assignees on project tasks or offers' : `Message ${projectAssigneeEmails.length} assignee(s)`}
-                className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                Message project assignees
-              </button>
-              <button
-                onClick={handleExportProjectPdf}
-                disabled={exportingPdf}
-                className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50"
-              >
-                {exportingPdf ? (
-                  <Spinner size="sm" />
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                )}
-                Export project PDF
-              </button>
-              {sourcePdfUploadId && sourcePdfBannerHidden && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSourcePdfBannerHidden(false)
-                    localStorage.removeItem(`aether_hide_source_pdf_${projectId}`)
-                  }}
-                  className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline"
-                >
-                  Source PDF
-                </button>
-              )}
-            </div>
-            {sourcePdfUploadId && !sourcePdfBannerHidden && (
-                <div className="mt-4 p-3 rounded-xl bg-indigo-50 border border-indigo-100 relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSourcePdfBannerHidden(true)
-                      localStorage.setItem(`aether_hide_source_pdf_${projectId}`, 'true')
-                    }}
-                    className="absolute top-2 right-2 p-1 rounded-lg text-indigo-400 hover:text-indigo-600 hover:bg-indigo-100/80 transition-colors"
-                    title="Hide"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                  <p className="text-sm font-medium text-indigo-900 pr-8">Source PDF</p>
-                  <p className="text-xs text-indigo-700 mt-0.5">This project was created from an uploaded PDF estimate.</p>
-                  <div className="flex flex-wrap gap-3 mt-3">
-                    <button
-                      onClick={handleDownloadSourcePdf}
-                      disabled={downloadingPdf}
-                      className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 disabled:opacity-50"
-                    >
-                      {downloadingPdf ? (
-                        <Spinner size="sm" />
-                      ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                      )}
-                      Download source PDF
-                    </button>
-                    {isAdmin && (
-                      <Link
-                        to="/app/pdf-uploads"
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-700 hover:text-indigo-800"
-                      >
-                        View training & agent activity
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                        </svg>
-                      </Link>
-                    )}
-                  </div>
-                </div>
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
@@ -1305,6 +1412,7 @@ export default function ProjectDetail() {
               ]
             : []),
           { key: 'emails', label: 'Messages' },
+          { key: 'pdfs', label: 'PDFs' },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -1402,6 +1510,9 @@ export default function ProjectDetail() {
                         )}
                       </button>
                     </th>
+                    <th className="text-left px-6 py-3 hidden sm:table-cell">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Offer progress</span>
+                    </th>
                     {isAdmin && (
                       <th className="text-right px-6 py-3">
                         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Task total</span>
@@ -1438,6 +1549,13 @@ export default function ProjectDetail() {
                           <p className="text-xs text-gray-400 mt-0.5 max-w-sm truncate">{task.description}</p>
                         )}
                       </td>
+                      <td className="px-6 py-4 text-sm text-gray-600 hidden sm:table-cell">
+                        {task.offerCompletionPercent != null ? (
+                          <span className="font-medium text-emerald-700 tabular-nums">{Math.round(task.offerCompletionPercent)}%</span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
                       {isAdmin && (
                         <td className="px-6 py-4 text-right font-medium text-gray-900">
                           {formatCurrency(taskTotals[task.id])}
@@ -1448,31 +1566,32 @@ export default function ProjectDetail() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-1">
-                          {(task.assigneeIds?.length ?? 0) > 0 && (
+                          {(() => {
+                            const taskRecipients = messageRecipientMembers(task.assigneeIds, teamMembers)
+                            if (!taskRecipients.some((r) => r.email || r.phoneE164)) return null
+                            return (
                             <button
                               onClick={() => {
-                                const toEmails = (task.assigneeIds ?? [])
-                                  .map((id) => teamMembers.find((m) => m.id === id)?.email)
-                                  .filter(Boolean)
-                                if (toEmails.length > 0) {
-                                  setEmailModal({
-                                    type: 'task',
-                                    taskId: task.id,
-                                    taskName: task.name,
-                                    toEmails,
-                                    defaultSubject: `Task: ${task.name}`,
-                                    defaultBody: `Hi,\n\nRegarding task "${task.name}" in project "${project?.name ?? ''}":\n\n`,
-                                  })
-                                }
+                                setMutationError(null)
+                                setEmailModal({
+                                  type: 'task',
+                                  taskId: task.id,
+                                  taskName: task.name,
+                                  recipients: taskRecipients,
+                                  modalKey: Date.now(),
+                                  defaultSubject: `Task: ${task.name}`,
+                                  defaultBody: `Hi,\n\nRegarding task "${task.name}" in project "${project?.name ?? ''}":\n\n`,
+                                })
                               }}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                              title="Message task assignees"
+                              title="Message task assignees (email and/or text)"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                               </svg>
                             </button>
-                          )}
+                            )
+                          })()}
                           <button
                             onClick={() => { setMutationError(null); setTaskModal({ mode: 'edit', task }) }}
                             disabled={pricingInProgress}
@@ -1601,37 +1720,66 @@ export default function ProjectDetail() {
 
       {activeTab === 'emails' && (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-6 py-4 border-b border-gray-100">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1 min-w-0">
+          <div className="flex flex-col gap-4 px-6 py-4 border-b border-gray-100">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <h2 className="text-base font-semibold text-gray-900">
-                Message history <span className="text-gray-400 font-normal text-sm ml-1">({filteredEmails.length}{emailSearch ? ` of ${projectEmails.length}` : ''})</span>
+                Messages <span className="text-gray-400 font-normal text-sm ml-1">({filteredEmails.length}{emailSearch ? ` of ${projectEmails.length}` : ''})</span>
               </h2>
-              <form
-                onSubmit={(e) => { e.preventDefault(); setEmailSearch(emailSearchInput) }}
-                className="flex gap-2 flex-1 max-w-sm"
+              <button
+                type="button"
+                onClick={() => {
+                  if (!canMessageProjectTeam) return
+                  setMutationError(null)
+                  setEmailModal({
+                    type: 'project',
+                    recipients: projectRecipients,
+                    modalKey: Date.now(),
+                    defaultSubject: `Project: ${project?.name ?? 'Estimate'}`,
+                    defaultBody: `Hi,\n\nRegarding project "${project?.name ?? ''}":\n\n`,
+                  })
+                }}
+                disabled={!canMessageProjectTeam}
+                title={
+                  !canMessageProjectTeam
+                    ? 'No reachable assignees: add people on tasks or offers, with email and/or phone on their profile'
+                    : `${projectRecipients.length} assignee(s) on tasks/offers (${projectWithEmail} with email, ${projectWithPhone} with text) — choose recipients in the modal`
+                }
+                className="inline-flex items-center justify-center gap-2 text-sm font-semibold bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600 w-full sm:w-auto"
               >
-                <input
-                  value={emailSearchInput}
-                  onChange={(e) => setEmailSearchInput(e.target.value)}
-                  placeholder="Search subject, recipients, body…"
-                  className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition"
-                />
-                <button type="submit" className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl transition-colors">
-                  Search
-                </button>
-                {emailSearch && (
-                  <button type="button" onClick={() => { setEmailSearch(''); setEmailSearchInput('') }} className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">
-                    Clear
-                  </button>
-                )}
-              </form>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Message project team
+              </button>
             </div>
+            <p className="text-sm text-gray-500 -mt-1">
+              Recipients are everyone assigned on any task or offer on this project (with email and/or phone on their profile).
+            </p>
+            <form
+              onSubmit={(e) => { e.preventDefault(); setEmailSearch(emailSearchInput) }}
+              className="flex flex-wrap gap-2 w-full max-w-xl"
+            >
+              <input
+                value={emailSearchInput}
+                onChange={(e) => setEmailSearchInput(e.target.value)}
+                placeholder="Search subject, recipients, body…"
+                className="flex-1 min-w-[12rem] rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition"
+              />
+              <button type="submit" className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl transition-colors">
+                Search
+              </button>
+              {emailSearch && (
+                <button type="button" onClick={() => { setEmailSearch(''); setEmailSearchInput('') }} className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700">
+                  Clear
+                </button>
+              )}
+            </form>
           </div>
           <div className="p-6">
             {projectEmails.length === 0 ? (
               <EmptyState
                 title="No messages sent yet"
-                description="Use the &quot;Message project assignees&quot; button above when someone is assigned to a task or an offer. All messages sent for this project will appear here."
+                description="Use the Message project team button above when people are assigned on tasks or offers (with email and/or phone on their profile). Sent email and text appear below."
                 icon={
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -1651,26 +1799,155 @@ export default function ProjectDetail() {
             ) : (
               <div className="space-y-4">
                 {filteredEmails.map((e) => (
-                  <div key={e.id} className="p-4 rounded-xl border border-gray-100 bg-gray-50/50">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900">{e.subject}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          To: {e.toEmails?.join(', ')}
-                          {e.taskId && (
-                            <span className="ml-2 text-indigo-600">(task assignees)</span>
-                          )}
-                        </p>
-                        {e.body && (
-                          <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap line-clamp-3">{e.body}</p>
-                        )}
-                      </div>
-                      <span className="text-xs text-gray-400 flex-shrink-0">
-                        {e.sentAt ? formatDate(e.sentAt) : '—'}
-                      </span>
-                    </div>
-                  </div>
+                  <ProjectMessageHistoryItem key={e.id} email={e} formatDate={formatDate} />
                 ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'pdfs' && (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 px-6 py-4 border-b border-gray-100">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Project PDFs</h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                PDFs uploaded for this project appear below as they are processed. Download or delete a file anytime—deleting an upload does not remove tasks or offers.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={pdfImportInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={handlePdfImportChange}
+              />
+              {canExportForClient && (
+                <button
+                  type="button"
+                  onClick={() => setExportPdfConfirmOpen(true)}
+                  disabled={exportingPdf}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800 border border-indigo-200 hover:bg-indigo-50 px-3 py-2 rounded-xl disabled:opacity-50"
+                >
+                  {exportingPdf ? <Spinner size="sm" /> : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  )}
+                  Export for Client
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => pdfImportInputRef.current?.click()}
+                disabled={pdfImportBusy || !tenantId}
+                title="Add tasks and offers from an estimate PDF into this project"
+                className="inline-flex items-center gap-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-2 rounded-xl disabled:opacity-50"
+              >
+                {pdfImportBusy ? <Spinner size="sm" /> : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                )}
+                Build Project from PDF
+              </button>
+            </div>
+          </div>
+          <div className="p-6">
+            {projectPdfsError && (
+              <div className="mb-4">
+                <Alert message={projectPdfsError} onDismiss={() => setProjectPdfsError(null)} />
+              </div>
+            )}
+            {projectPdfsLoading && projectPdfs.length === 0 ? (
+              <div className="flex justify-center py-16">
+                <Spinner size="lg" />
+              </div>
+            ) : projectPdfs.length === 0 ? (
+              <EmptyState
+                title="No PDFs for this project yet"
+                description="Use Build Project from PDF above to import an estimate into this project. Uploads appear here when processing completes—you can download or delete each file."
+                icon={
+                  <svg className="w-12 h-12 text-gray-300" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                  </svg>
+                }
+              />
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/50">
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">File</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Uploaded</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Size</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {projectPdfs.map((upload) => {
+                      const statusInfo = PDF_STATUS_LABELS[upload.status] ?? { label: upload.status ?? 'Unknown', color: 'bg-gray-100 text-gray-700' }
+                      const isSource = sourcePdfUploadId && upload.id === sourcePdfUploadId
+                      return (
+                        <tr key={upload.id} className="hover:bg-gray-50/70 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-gray-900 truncate max-w-[220px]" title={upload.fileName}>
+                              {upload.fileName || 'Unknown file'}
+                            </div>
+                            {isSource && (
+                              <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded">
+                                Source PDF
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${statusInfo.color}`}>
+                              {upload.status === 'PROCESSING' && <Spinner size="sm" className="mr-1" />}
+                              {statusInfo.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">
+                            {formatDateTime(upload.uploadedAt)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 hidden md:table-cell">
+                            {formatBytes(upload.fileSizeBytes)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-3">
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadProjectPdfRow(upload)}
+                                disabled={downloadingPdfId === upload.id}
+                                className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                              >
+                                {downloadingPdfId === upload.id ? <Spinner size="sm" /> : (
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                  </svg>
+                                )}
+                                Download
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteProjectPdfTarget(upload)}
+                                className="inline-flex items-center gap-1.5 text-sm font-medium text-red-600 hover:text-red-700"
+                                title="Delete upload"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916" />
+                                </svg>
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -1872,14 +2149,15 @@ export default function ProjectDetail() {
 
       {/* Email compose modal */}
       <EmailComposeModal
+        key={emailModal?.modalKey ?? 'closed'}
         open={!!emailModal}
         onClose={() => { setEmailModal(null); setMutationError(null) }}
-        toEmails={emailModal?.toEmails ?? []}
+        recipients={emailModal?.recipients ?? []}
         defaultSubject={emailModal?.defaultSubject ?? ''}
         defaultBody={emailModal?.defaultBody ?? ''}
         sending={sendingEmail}
         error={mutationError}
-        onSend={({ subject, body }) => {
+        onSend={({ subject, body, sendEmail, sendSms, toEmails, toPhoneNumbers }) => {
           setMutationError(null)
           sendProjectEmail({
             variables: {
@@ -1888,8 +2166,11 @@ export default function ProjectDetail() {
                 projectId,
                 taskId: emailModal?.taskId ?? null,
                 senderId: user?.id,
-                toEmails: emailModal?.toEmails ?? [],
-                subject,
+                toEmails: sendEmail ? toEmails : [],
+                toPhoneNumbers: sendSms ? toPhoneNumbers : [],
+                sendEmail,
+                sendSms,
+                subject: sendEmail ? subject : null,
                 body,
               },
             },
@@ -1937,6 +2218,34 @@ export default function ProjectDetail() {
           await handleRequestPricing()
           setPricingConfirmOpen(false)
         }}
+      />
+
+      <ConfirmDialog
+        open={exportPdfConfirmOpen && canExportForClient}
+        onClose={() => setExportPdfConfirmOpen(false)}
+        loading={exportingPdf}
+        title="Export for client?"
+        message="A client-ready PDF of this project will be generated and downloaded to your device. Continue?"
+        confirmLabel="Download PDF"
+        variant="neutral"
+        onConfirm={async () => {
+          await handleExportProjectPdf()
+          setExportPdfConfirmOpen(false)
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!deleteProjectPdfTarget}
+        onClose={() => setDeleteProjectPdfTarget(null)}
+        loading={deletingProjectPdf}
+        title="Delete PDF upload?"
+        message={
+          deleteProjectPdfTarget
+            ? `Remove "${deleteProjectPdfTarget.fileName || 'this upload'}" from this project? The stored file and upload record will be deleted. Tasks and offers are not removed.`
+            : ''
+        }
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDeleteProjectPdf}
       />
 
       {/* Delete confirm */}
