@@ -14,31 +14,38 @@ export default function Contact() {
   }
 
   return (
-    <main className="pt-16 min-h-screen bg-gray-50">
-      <section className="bg-gradient-to-br from-indigo-950 to-gray-900 py-28 text-center">
-        <div className="max-w-2xl mx-auto px-6">
-          <h1 className="text-4xl md:text-6xl font-extrabold text-white tracking-tight">
-            Get in touch
-          </h1>
-          <p className="mt-4 text-lg text-indigo-200/80">
-            Have a question or want to work together? We&apos;d love to hear from you.
+    <main className="min-h-screen overflow-x-hidden bg-slate-50">
+      <section className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 pt-16 py-24 text-center">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -left-20 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-cyan-500/15 blur-3xl marketing-float"
+        />
+        <div className="relative mx-auto max-w-2xl px-6">
+          <h1 className="text-4xl font-extrabold tracking-tight text-white md:text-6xl">Let&apos;s talk shop</h1>
+          <p className="mt-6 text-lg leading-relaxed text-indigo-100/75">
+            Questions about Aether, a bigger crew rollout, or whether we fit your trade? Drop a note — we read
+            every message.
           </p>
         </div>
       </section>
 
-      <section className="max-w-xl mx-auto px-6 py-20">
+      <section className="mx-auto max-w-xl px-6 py-16 lg:px-8">
         {submitted ? (
-          <div className="text-center py-16 px-8 bg-white rounded-2xl shadow-sm border border-gray-100">
-            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
+          <div className="rounded-3xl border border-emerald-100 bg-white p-10 text-center shadow-lg shadow-emerald-100/30">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-500 text-2xl shadow-lg">
+              ✓
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Message sent!</h2>
-            <p className="text-gray-500">Thanks for reaching out. We&apos;ll get back to you within 24 hours.</p>
+            <h2 className="mt-6 text-2xl font-bold text-slate-900">You&apos;re on the list</h2>
+            <p className="mt-2 text-slate-600">
+              Thanks for reaching out. We&apos;ll get back as soon as we can — usually within a business day.
+            </p>
             <button
-              onClick={() => { setSubmitted(false); setForm({ name: '', email: '', message: '' }) }}
-              className="mt-8 text-sm font-semibold text-indigo-600 hover:text-indigo-500 transition-colors"
+              type="button"
+              onClick={() => {
+                setSubmitted(false)
+                setForm({ name: '', email: '', message: '' })
+              }}
+              className="mt-8 text-sm font-semibold text-indigo-600 hover:text-indigo-500"
             >
               Send another message
             </button>
@@ -46,11 +53,11 @@ export default function Contact() {
         ) : (
           <form
             onSubmit={handleSubmit}
-            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6"
+            className="space-y-6 rounded-3xl border border-slate-100 bg-white p-8 shadow-xl shadow-slate-200/50 md:p-10"
           >
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
-                Full name
+              <label htmlFor="name" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Your name
               </label>
               <input
                 id="name"
@@ -59,14 +66,14 @@ export default function Contact() {
                 required
                 value={form.name}
                 onChange={handleChange}
-                placeholder="Jane Smith"
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition"
+                placeholder="Jamie Smith"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
-                Email address
+              <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Work email
               </label>
               <input
                 id="email"
@@ -75,14 +82,14 @@ export default function Contact() {
                 required
                 value={form.email}
                 onChange={handleChange}
-                placeholder="jane@example.com"
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition"
+                placeholder="jamie@yourcompany.com"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
 
             <div>
-              <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1.5">
-                Message
+              <label htmlFor="message" className="mb-1.5 block text-sm font-medium text-slate-700">
+                What&apos;s on your mind?
               </label>
               <textarea
                 id="message"
@@ -91,14 +98,14 @@ export default function Contact() {
                 required
                 value={form.message}
                 onChange={handleChange}
-                placeholder="Tell us what you're building..."
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 outline-none transition resize-none"
+                placeholder="Tell us about your trade, team size, or what you wish your software did today…"
+                className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             </div>
 
             <button
               type="submit"
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-3.5 rounded-xl transition-colors"
+              className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition hover:from-indigo-500 hover:to-violet-500"
             >
               Send message
             </button>

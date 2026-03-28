@@ -1,102 +1,89 @@
-const team = [
-  { name: 'Alex Rivera', role: 'CEO & Co-founder', initials: 'AR' },
-  { name: 'Jordan Lee', role: 'CTO & Co-founder', initials: 'JL' },
-  { name: 'Sam Chen', role: 'Head of Design', initials: 'SC' },
-  { name: 'Morgan Davis', role: 'Head of Engineering', initials: 'MD' },
-]
-
 const values = [
   {
-    title: 'Transparency first',
+    title: 'Respect for the work',
     description:
-      'We believe in open communication — with our team, our customers, and our community. No black boxes.',
+      'We build for people who measure success in finished jobs, happy clients, and fair pay — not vanity metrics.',
   },
   {
-    title: 'Craft over speed',
+    title: 'Clarity over clutter',
     description:
-      'We take the time to do things right. Quality is not a feature — it is the foundation.',
+      'You shouldn’t need a certification to run your own company. Aether stays understandable on a phone between site visits.',
   },
   {
-    title: 'User obsession',
+    title: 'Honest numbers',
     description:
-      'Every decision starts with the user. We listen closely and ship what actually makes a difference.',
+      'Labor, materials, and scope should line up. We help you see where margin lives — and where it leaks.',
   },
   {
-    title: 'Bias to action',
+    title: 'AI as a teammate',
     description:
-      'We move fast, take ownership, and iterate. Waiting for perfect is the enemy of better.',
+      'Estimation and training features learn from how you already work — they don’t replace your judgment.',
   },
 ]
 
 export default function About() {
   return (
-    <main className="pt-16">
-      {/* Header */}
-      <section className="bg-gradient-to-br from-indigo-950 to-gray-900 py-28 text-center">
-        <div className="max-w-3xl mx-auto px-6">
-          <h1 className="text-4xl md:text-6xl font-extrabold text-white tracking-tight">
-            Our story
+    <main className="overflow-x-hidden">
+      <section className="relative overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 pt-16 py-28 text-center">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.25),transparent_65%)]"
+        />
+        <div className="relative mx-auto max-w-3xl px-6">
+          <p className="marketing-fade-up text-sm font-semibold uppercase tracking-widest text-indigo-300/90">
+            About Aether
+          </p>
+          <h1 className="marketing-fade-up marketing-delay-1 mt-4 text-4xl font-extrabold tracking-tight text-white md:text-6xl">
+            Software that speaks
+            <span className="mt-2 block bg-gradient-to-r from-amber-200 via-white to-emerald-200 bg-clip-text text-transparent">
+              contractor, crew & classroom.
+            </span>
           </h1>
-          <p className="mt-6 text-lg text-indigo-200/80 leading-relaxed">
-            Aether was founded in 2022 by a team of engineers frustrated with the state of developer
-            infrastructure. We set out to build the platform we always wished existed.
+          <p className="marketing-fade-up marketing-delay-2 mt-8 text-lg leading-relaxed text-indigo-100/75">
+            We started Aether because service and trade businesses deserve tools as serious as they are — not
+            watered-down enterprise suites or toy apps. Whether you pour concrete, trim hedges, wire panels, or
+            tutor the next generation, your projects deserve one steady place to live.
           </p>
         </div>
       </section>
 
-      {/* Mission */}
-      <section className="py-24 bg-white">
-        <div className="max-w-5xl mx-auto px-6 lg:px-8 grid md:grid-cols-2 gap-16 items-center">
+      <section className="py-24">
+        <div className="mx-auto grid max-w-6xl items-center gap-16 px-6 lg:grid-cols-2 lg:px-8">
           <div>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-              Our mission
-            </h2>
-            <p className="mt-5 text-gray-500 leading-relaxed">
-              We&apos;re on a mission to democratize world-class infrastructure. The tools that power
-              the internet&apos;s largest companies should be accessible to every team — from a solo
-              developer to a Fortune 500.
+            <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 md:text-4xl">Our mission</h2>
+            <p className="mt-6 text-lg leading-relaxed text-slate-600">
+              Give every skilled team — from two vans to two dozen crews — the same clarity big shops get from
+              expensive systems: projects, tasks, time, costs, and smarter estimates, without the enterprise
+              headache.
             </p>
-            <p className="mt-4 text-gray-500 leading-relaxed">
-              Aether abstracts away the hard parts of building, deploying, and scaling software so
-              you can focus on creating value for your users.
+            <p className="mt-4 text-lg leading-relaxed text-slate-600">
+              We’re obsessed with the handoff from “we think this job is about…” to “here’s the plan, the hours,
+              and the number.” That’s where trust is won.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            {values.map(({ title, description }) => (
+            {values.map(({ title, description }, i) => (
               <div
                 key={title}
-                className="p-5 rounded-2xl bg-indigo-50 border border-indigo-100"
+                className="rounded-2xl border border-slate-100 bg-gradient-to-br from-indigo-50/80 to-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                style={{ animationDelay: `${i * 0.05}s` }}
               >
-                <h3 className="text-sm font-semibold text-indigo-700 mb-2">{title}</h3>
-                <p className="text-xs text-gray-500 leading-relaxed">{description}</p>
+                <h3 className="text-sm font-bold text-indigo-900">{title}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-slate-600">{description}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Team */}
-      <section className="py-24 bg-gray-50">
-        <div className="max-w-5xl mx-auto px-6 lg:px-8 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-            Meet the team
-          </h2>
-          <p className="mt-4 text-gray-500 max-w-xl mx-auto">
-            We&apos;re a small, focused team that cares deeply about craft.
+      <section className="border-t border-slate-100 bg-slate-50 py-24">
+        <div className="mx-auto max-w-3xl px-6 text-center lg:px-8">
+          <h2 className="text-2xl font-extrabold text-slate-900 md:text-3xl">Who we’re building with</h2>
+          <p className="mt-4 text-slate-600">
+            General contractors, landscapers, plumbers, electricians, cleaners, tutors, handymen, property
+            managers — anyone who sells skilled time and stands behind the outcome. If that’s you, we’re
+            listening.
           </p>
-          <div className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-8">
-            {team.map(({ name, role, initials }) => (
-              <div key={name} className="flex flex-col items-center gap-4">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold shadow-lg">
-                  {initials}
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">{name}</p>
-                  <p className="text-sm text-gray-500">{role}</p>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
     </main>

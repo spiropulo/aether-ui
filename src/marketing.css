@@ -1,0 +1,149 @@
+/* Marketing / pre-auth pages — motion and atmosphere */
+@keyframes marketing-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes marketing-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(1deg);
+  }
+}
+
+@keyframes marketing-pulse-glow {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes marketing-shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+@keyframes marketing-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes marketing-spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes marketing-detail-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.marketing-aside-item-enter {
+  animation: marketing-fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+}
+
+.marketing-detail-reveal {
+  animation: marketing-detail-reveal 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.marketing-fade-up {
+  animation: marketing-fade-up 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+}
+
+.marketing-delay-1 {
+  animation-delay: 0.12s;
+}
+.marketing-delay-2 {
+  animation-delay: 0.24s;
+}
+.marketing-delay-3 {
+  animation-delay: 0.36s;
+}
+.marketing-delay-4 {
+  animation-delay: 0.48s;
+}
+.marketing-delay-5 {
+  animation-delay: 0.6s;
+}
+
+.marketing-float {
+  animation: marketing-float 5s ease-in-out infinite;
+}
+
+.marketing-float-delayed {
+  animation: marketing-float 6s ease-in-out infinite;
+  animation-delay: 1.2s;
+}
+
+.marketing-pulse-glow {
+  animation: marketing-pulse-glow 4s ease-in-out infinite;
+}
+
+.marketing-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    #a5b4fc 0%,
+    #fde68a 25%,
+    #6ee7b7 50%,
+    #a5b4fc 75%,
+    #fde68a 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: marketing-shimmer 8s linear infinite;
+}
+
+.marketing-marquee-track {
+  animation: marketing-marquee 45s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-fade-up,
+  .marketing-float,
+  .marketing-float-delayed,
+  .marketing-pulse-glow,
+  .marketing-shimmer-text,
+  .marketing-marquee-track,
+  .marketing-aside-item-enter,
+  .marketing-detail-reveal {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
