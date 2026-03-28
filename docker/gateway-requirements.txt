@@ -1,0 +1,6 @@
+starlette>=0.45.0
+uvicorn[standard]>=0.34.0
+httpx>=0.28.0
+google-auth>=2.29.0
+# Required by google.auth.transport.requests (used for ID token fetch in the gateway)
+requests>=2.31.0

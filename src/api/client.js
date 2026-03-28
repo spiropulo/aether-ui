@@ -1,11 +1,10 @@
 import { ApolloClient, InMemoryCache, createHttpLink } from '@apollo/client/core'
 import { setContext } from '@apollo/client/link/context'
 import { onError } from '@apollo/client/link/error'
+import { graphqlHttpUri } from './backendPublicPaths'
 
 const httpLink = createHttpLink({
-  // In development, requests go to /graphql which Vite proxies to the backend
-  // (avoids CORS). In production set VITE_GRAPHQL_URL to the full backend URL.
-  uri: import.meta.env.VITE_GRAPHQL_URL ?? '/graphql',
+  uri: graphqlHttpUri(),
 })
 
 const authLink = setContext((_, { headers }) => {

@@ -2,7 +2,9 @@
  * POST /api/v1/training/parse-pricing — natural language → structured pricing facts (via aether-app → aether-ai).
  */
 
-const BASE = import.meta.env.VITE_API_URL ?? '/api'
+import { restApiBase } from './backendPublicPaths'
+
+const BASE = restApiBase()
 
 export async function parseTrainingPricing({ text, projectTypeHint, unitHint, token } = {}) {
   const headers = { 'Content-Type': 'application/json' }

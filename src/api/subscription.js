@@ -8,7 +8,9 @@
  * POST  /api/v1/subscription/cancel
  */
 
-const BASE = import.meta.env.VITE_API_URL ?? '/api'
+import { restApiBase } from './backendPublicPaths'
+
+const BASE = restApiBase()
 
 export async function getSubscriptionStatus(tenantId, { token } = {}) {
   const url = `${BASE}/v1/subscription/status?tenant_id=${encodeURIComponent(tenantId)}`

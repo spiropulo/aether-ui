@@ -6,7 +6,9 @@
  * DELETE /api/v1/estimate/projects/:projectId/uploads/:id — delete a project-scoped upload.
  */
 
-const BASE = import.meta.env.VITE_API_URL ?? '/api'
+import { restApiBase } from './backendPublicPaths'
+
+const BASE = restApiBase()
 
 function extractErrorMessage(data, status) {
   if (!data || typeof data !== 'object') return `Upload failed (${status})`
